@@ -230,13 +230,9 @@ handle_link(struct module *mod, uint16_t type,
 
     struct private *m = mod->private;
 
-    if (m->ifindex == -1) {
-        /* We don't know our own ifindex yet. Let's see if we can find
-         * it in the message */
-        if (!find_my_ifindex(mod, msg, len)) {
-            /* Nope, message wasn't for us (IFLA_IFNAME mismatch) */
-            return;
-        }
+    if (!find_my_ifindex(mod, msg, len)) {
+        /* Message wasn't for us (IFLA_IFNAME mismatch) */
+        return;
     }
 
     assert(m->ifindex >= 0);
@@ -313,8 +309,6 @@ handle_address(struct module *mod, uint16_t type,
     assert(type == RTM_NEWADDR || type == RTM_DELADDR);
 
     struct private *m = mod->private;
-
-    assert(m->ifindex >= 0);
 
     if (msg->ifa_index != m->ifindex) {
         /* Not for us */
@@ -420,8 +414,8 @@ parse_reply(struct module *mod, const struct nlmsghdr *hdr, size_t len)
         switch (hdr->nlmsg_type) {
         case NLMSG_DONE:
             if (m->ifindex == -1) {
-                LOG_ERR("%s: failed to find interface", m->iface);
-                return false;
+                LOG_WARN("%s: failed to find interface", m->iface);
+                return true;
             }
 
             /* Request initial list of IPv4/6 addresses */
