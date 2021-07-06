@@ -263,7 +263,7 @@ handle_get_workspaces_reply(int type, const struct json_object *json, void *_mod
             return false;
         }
 
-        LOG_DBG("#%zu: %s", i, m->workspaces.v[i].name);
+        LOG_DBG("#%zu: %s", i, ws.name);
         workspace_add(m, ws);
     }
 
