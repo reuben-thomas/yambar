@@ -90,7 +90,7 @@ content(struct module *mod)
 }
 
 static bool
-handle_input_reply(int type, const struct json_object *json, void *_mod)
+handle_input_reply(int sock, int type, const struct json_object *json, void *_mod)
 {
     struct module *mod = _mod;
     struct private *m = mod->private;
@@ -155,7 +155,7 @@ handle_input_reply(int type, const struct json_object *json, void *_mod)
 }
 
 static bool
-handle_input_event(int type, const struct json_object *json, void *_mod)
+handle_input_event(int sock, int type, const struct json_object *json, void *_mod)
 {
     struct module *mod = _mod;
     struct private *m = mod->private;
