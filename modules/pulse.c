@@ -414,8 +414,8 @@ pulse_new(const char *sink_name, const char *source_name, struct particle *label
 static struct module *
 from_conf(const struct yml_node *node, struct conf_inherit inherited)
 {
-    const struct yml_node *sink_name = yml_get_value(node, "sink_name");
-    const struct yml_node *source_name = yml_get_value(node, "source_name");
+    const struct yml_node *sink_name = yml_get_value(node, "sink");
+    const struct yml_node *source_name = yml_get_value(node, "source");
     const struct yml_node *content = yml_get_value(node, "content");
 
     return pulse_new(sink_name != NULL ? yml_value_as_string(sink_name) : "@DEFAULT_SINK@",
@@ -427,8 +427,8 @@ static bool
 verify_conf(keychain_t *chain, const struct yml_node *node)
 {
     static const struct attr_info attrs[] = {
-        {"sink_name", false, &conf_verify_string},
-        {"source_name", false, &conf_verify_string},
+        {"sink", false, &conf_verify_string},
+        {"source", false, &conf_verify_string},
         MODULE_COMMON_ATTRS,
     };
 

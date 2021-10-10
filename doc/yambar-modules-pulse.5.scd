@@ -37,11 +37,11 @@ pulse - Monitors one pulseaudio source and sink for volume and mute/unmute chang
 :[ *Type*
 :[ *Req*
 :[ *Description*
-|  sink_name
+|  sink
 :  string
 :  no
 :  Sink name to monitor. Defaults to _@DEFAULT\_SINK@_
-|  source_name
+|  source
 :  string
 :  no
 :  Source name to monitor. Defaults to _@DEFAULT\_SOURCE@_
