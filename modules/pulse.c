@@ -146,23 +146,31 @@ server_info_callback(pa_context *c, const pa_server_info *i, void *userdata)
     struct private *p = mod->private;
     pa_operation *o;
 
-    mtx_lock(&mod->lock);
     // If they match defaults that means there are no sinks/sources
     if (strcmp(i->default_sink_name, "@DEFAULT_SINK@") == 0) {
+        mtx_lock(&mod->lock);
         p->sink_online = false;
         p->sink_index = 0;
+        mtx_unlock(&mod->lock);
+
         mod->bar->refresh(mod->bar);
     }
     if (strcmp(i->default_source_name, "@DEFAULT_SOURCE@") == 0) {
+        mtx_lock(&mod->lock);
         p->source_online = false;
         p->source_index = 0;
+        mtx_unlock(&mod->lock);
+
         mod->bar->refresh(mod->bar);
     }
 
     if (!p->current_sink_name || strcmp(i->default_sink_name, p->current_sink_name) != 0) {
         LOG_DBG("Default sink changed (%s) - calling get_sink_info_by_name", i->default_sink_name);
+        mtx_lock(&mod->lock);
         free(p->current_sink_name);
         p->current_sink_name = strdup(i->default_sink_name);
+        mtx_unlock(&mod->lock);
+
         if (!(o = pa_context_get_sink_info_by_name(c, p->sink_name, sink_info_callback,
                                                    userdata))) {
             LOG_ERR("pa_context_get_sink_info_by_name() failed: %s",
@@ -173,8 +181,11 @@ server_info_callback(pa_context *c, const pa_server_info *i, void *userdata)
                strcmp(i->default_source_name, p->current_source_name) != 0) {
         LOG_DBG("Default source changed (%s) - calling get_sink_info_by_name",
                 i->default_source_name);
+        mtx_lock(&mod->lock);
         free(p->current_source_name);
         p->current_source_name = strdup(i->default_source_name);
+        mtx_unlock(&mod->lock);
+
         if (!(o = pa_context_get_source_info_by_name(c, p->source_name, source_info_callback,
                                                      userdata))) {
             LOG_ERR("pa_context_get_source_info_by_name() failed: %s",
@@ -182,8 +193,6 @@ server_info_callback(pa_context *c, const pa_server_info *i, void *userdata)
         }
         pa_operation_unref(o);
     }
-
-    mtx_unlock(&mod->lock);
 }
 
 /*
@@ -200,13 +209,16 @@ pa_subscription_callback(pa_context *c, pa_subscription_event_type_t t, uint idx
     struct private *p = mod->private;
     pa_operation *o;
 
-    mtx_lock(&mod->lock);
     switch (t & PA_SUBSCRIPTION_EVENT_FACILITY_MASK) {
     case PA_SUBSCRIPTION_EVENT_SINK:
         if ((t & PA_SUBSCRIPTION_EVENT_TYPE_MASK) == PA_SUBSCRIPTION_EVENT_REMOVE) {
             if (idx == p->sink_index) {
+                mtx_lock(&mod->lock);
                 p->sink_online = false;
                 p->sink_index = 0;
+                mtx_unlock(&mod->lock);
+
+                mod->bar->refresh(mod->bar);
             }
         }
 
@@ -223,8 +235,12 @@ pa_subscription_callback(pa_context *c, pa_subscription_event_type_t t, uint idx
     case PA_SUBSCRIPTION_EVENT_SOURCE:
         if ((t & PA_SUBSCRIPTION_EVENT_TYPE_MASK) == PA_SUBSCRIPTION_EVENT_REMOVE) {
             if (idx == p->source_index) {
+                mtx_lock(&mod->lock);
                 p->source_online = false;
                 p->source_index = 0;
+                mtx_unlock(&mod->lock);
+
+                mod->bar->refresh(mod->bar);
             }
         }
 
@@ -237,6 +253,7 @@ pa_subscription_callback(pa_context *c, pa_subscription_event_type_t t, uint idx
             }
             pa_operation_unref(o);
         }
+        break;
     case PA_SUBSCRIPTION_EVENT_SERVER:
         // Update when server state changes - for example changes in default sink/source
         if (!(o = pa_context_get_server_info(c, server_info_callback, userdata))) {
@@ -245,7 +262,6 @@ pa_subscription_callback(pa_context *c, pa_subscription_event_type_t t, uint idx
         pa_operation_unref(o);
         break;
     }
-    mtx_unlock(&mod->lock);
 }
 
 /* This is called whenever the context status changes - we connect/disconnect etc */
@@ -264,6 +280,8 @@ context_state_callback(pa_context *c, void *userdata)
         mtx_lock(&mod->lock);
         p->online = false;
         mtx_unlock(&mod->lock);
+
+        mod->bar->refresh(mod->bar);
         break;
 
     case PA_CONTEXT_READY: {
@@ -272,6 +290,10 @@ context_state_callback(pa_context *c, void *userdata)
         mtx_lock(&mod->lock);
         p->online = true;
         mtx_unlock(&mod->lock);
+
+        // Usually not needed since later callbacks refresh the bar, but it doesn't hurt just in case
+        mod->bar->refresh(mod->bar);
+
         LOG_DBG("pulse connection established.");
         pa_context_set_subscribe_callback(c, pa_subscription_callback, mod);
         if (!(o = pa_context_subscribe(c,
@@ -295,16 +317,6 @@ context_state_callback(pa_context *c, void *userdata)
     }
 
     case PA_CONTEXT_TERMINATED:
-        mtx_lock(&mod->lock);
-        p->online = false;
-        p->sink_online = false;
-        p->source_online = false;
-        mtx_unlock(&mod->lock);
-        LOG_INFO("pulse connection terminated.");
-        mod->bar->refresh(mod->bar);
-        // TODO - possibly schedule a recurring reconnect attempt?
-        break;
-
     case PA_CONTEXT_FAILED:
     default:
         mtx_lock(&mod->lock);
