@@ -51,6 +51,7 @@ EXTERN_MODULE(xkb);
 EXTERN_MODULE(xwindow);
 EXTERN_MODULE(cpu);
 EXTERN_MODULE(mem);
+EXTERN_MODULE(temp);
 
 EXTERN_PARTICLE(empty);
 EXTERN_PARTICLE(list);
@@ -140,6 +141,7 @@ init(void)
 #endif
     REGISTER_CORE_MODULE(mem, mem);
     REGISTER_CORE_MODULE(cpu, cpu);
+    REGISTER_CORE_MODULE(temp, temp);
 
     REGISTER_CORE_PARTICLE(empty, empty);
     REGISTER_CORE_PARTICLE(list, list);

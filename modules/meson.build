@@ -19,6 +19,7 @@ mod_data = {
   'clock': [[], []],
   'cpu': [[], []],
   'mem': [[], []],
+  'temp': [[], []],
   'i3': [['i3-common.c', 'i3-common.h'], [dynlist, json]],
   'label': [[], []],
   'network': [[], []],
