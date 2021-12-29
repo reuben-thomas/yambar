@@ -9,7 +9,7 @@
 #include <sys/time.h>
 #include <time.h>
 
-#define LOG_MODULE "temp"
+#define LOG_MODULE "temperature"
 #define LOG_ENABLE_DBG 0
 #define SMALLEST_INTERVAL 500
 #include "../bar/bar.h"
@@ -40,11 +40,11 @@ destroy(struct module *mod)
 static const char *
 description(struct module *mod)
 {
-    return "temp";
+    return "temperature";
 }
 
 static bool
-get_temp(uint16_t thermal_zone, enum temp_unit unit, double *temp)
+get_temperature(uint16_t thermal_zone, enum temp_unit unit, double *temp)
 {
     FILE *fp = NULL;
     char *line = NULL;
@@ -72,17 +72,9 @@ get_temp(uint16_t thermal_zone, enum temp_unit unit, double *temp)
         goto exit;
     }
 
-    switch (unit) {
-    case TEMP_UNIT_CELSIUS:
-        *temp = read_temp / 1000;
-        break;
-    case TEMP_UNIT_FAHRENHEIT:
-        *temp = read_temp;
-        *temp = (*temp * (9 / 5)) + 32;
-        break;
-    default:
-        goto exit;
-        break;
+    *temp = read_temp / 1000;
+    if (TEMP_UNIT_FAHRENHEIT == unit) {
+        *temp = (*temp * (9.0 / 5.0)) + 32;
     }
     res = true;
 
@@ -98,14 +90,14 @@ static struct exposable *
 content(struct module *mod)
 {
     const struct private *p = mod->private;
-    double temp = 0;
+    double temperature = 0;
 
-    if (!get_temp(p->thermal_zone, p->unit, &temp)) {
+    if (!get_temperature(p->thermal_zone, p->unit, &temperature)) {
         LOG_ERR("unable to retrieve the temperature");
     }
 
     struct tag_set tags = {
-        .tags = (struct tag *[]){tag_new_int(mod, "temp", round(temp))},
+        .tags = (struct tag *[]){tag_new_int(mod, "temperature", round(temperature))},
         .count = 1,
     };
 
@@ -114,7 +106,6 @@ content(struct module *mod)
     return exposable;
 }
 
-#include <pthread.h>
 static int
 run(struct module *mod)
 {
@@ -145,11 +136,11 @@ run(struct module *mod)
 static enum temp_unit
 str_to_unit(const char *unit_str)
 {
-    if (0 == strcasecmp(unit_str, "C")) {
+    if (0 == strcasecmp(unit_str, "C") || 0 == strcasecmp(unit_str, "Celsius")) {
         return TEMP_UNIT_CELSIUS;
     }
 
-    if (0 == strcasecmp(unit_str, "F")) {
+    if (0 == strcasecmp(unit_str, "F") || 0 == strcasecmp(unit_str, "Fahrenheit")) {
         return TEMP_UNIT_FAHRENHEIT;
     }
 
@@ -203,16 +194,7 @@ conf_verify_interval(keychain_t *chain, const struct yml_node *node)
 static bool
 conf_verify_unit(keychain_t *chain, const struct yml_node *node)
 {
-    if (!conf_verify_string(chain, node))
-        return false;
-
-    enum temp_unit unit = str_to_unit(yml_value_as_string(node));
-    if (unit == TEMP_UNIT_INVALID) {
-        LOG_ERR("%s: invalid unit, must be C or F", conf_err_prefix(chain, node));
-        return false;
-    }
-
-    return true;
+    return conf_verify_enum(chain, node, (const char *[]){"C", "F", "Celsius", "Fahrenheit"}, 4);
 }
 
 static bool
@@ -228,11 +210,11 @@ verify_conf(keychain_t *chain, const struct yml_node *node)
     return conf_verify_dict(chain, node, attrs);
 }
 
-const struct module_iface module_temp_iface = {
+const struct module_iface module_temperature_iface = {
     .verify_conf = &verify_conf,
     .from_conf = &from_conf,
 };
 
 #if defined(CORE_PLUGINS_AS_SHARED_LIBRARIES)
-extern const struct module_iface iface __attribute__((weak, alias("module_temp_iface")));
+extern const struct module_iface iface __attribute__((weak, alias("module_temperature_iface")));
 #endif

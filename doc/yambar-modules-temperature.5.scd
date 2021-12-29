@@ -1,7 +1,7 @@
-yambar-modules-temp(5)
+yambar-modules-temperature(5)
 
 # NAME
-temp - This module displays the temperature of the thermal zones available on
+temperature - This module displays the temperature of the thermal zones available on
 the system
 
 # TAGS
@@ -9,7 +9,7 @@ the system
 [[ *Name*
 :[ *Type*
 :[ *Description*
-|  temp
+|  temperature
 :  string
 :  Current temperature of a given thermal zone
 
@@ -26,7 +26,8 @@ the system
 |  unit
 :  string
 :  no
-:  Unit of the temperature. It can be Celsius (C) or Farenheit (F) (default=C)
+:  Unit of the temperature. It can be Celsius (C or Celsius) or Fahrenheit (F or
+Fahrenheit) (default=C)
 
 |  thermal_zone
 :  int
@@ -38,11 +39,11 @@ the system
 ```
 bar:
   left:
-    - temp:
+    - temperature:
         interval: 1000
         thermal_zone: 0
         content:
-          string: {text: "{temp}C"}
+          string: {text: "{temperature}℃ (DEGREE CELSIUS)"}
 ```
 
 # SEE ALSO

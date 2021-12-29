@@ -18,7 +18,7 @@
   (https://codeberg.org/dnkl/yambar/issues/139).
 * mem: a module handling system memory monitoring
 * cpu: a module offering cpu usage monitoring
-* temp: a module displaying the temperature of the thermal zones in the machine.
+* temperature: a module displaying the temperature of the thermal zones in the machine.
 
 
 ### Changed
