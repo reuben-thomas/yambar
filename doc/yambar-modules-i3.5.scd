@@ -35,6 +35,9 @@ with the _application_ and _title_ tags to replace the X11-only
 |  urgent
 :  bool
 :  True if the workspace has the urgent flag set
+|  empty
+:  bool
+:  True if the workspace is empty (Sway only)
 |  state
 :  string
 :  One of *urgent*, *focused*, *unfocused* or *invisible* (note:
@@ -65,6 +68,10 @@ with the _application_ and _title_ tags to replace the X11-only
 :  enum
 :  no
 :  How to sort the list of workspaces; one of _none_, _ascending_ or _descending_, defaults to _none_.
+|  strip-workspace-numbers
+:  bool
+:  no
+:  If true, *N:* prefixes will be stripped from workspace names. Useful together with *sort*, to have the workspace order fixed.
 |  persistent
 :  list of strings
 :  no
@@ -95,10 +102,9 @@ bar:
         content:
           "":
             map:
-              tag: state
               default: {string: {text: "{name}"}}
-              values:
-                focused: {string: {text: "{name}*"}}
+              conditions:
+                state == focused: {string: {text: "{name}*"}}
           current: { string: {text: "{application}: {title}"}}
 ```
 

@@ -32,6 +32,7 @@ const char *conf_err_prefix(
 
 bool conf_verify_string(keychain_t *chain, const struct yml_node *node);
 bool conf_verify_int(keychain_t *chain, const struct yml_node *node);
+bool conf_verify_unsigned(keychain_t *chain, const struct yml_node *node);
 bool conf_verify_bool(keychain_t *chain, const struct yml_node *node);
 
 bool conf_verify_enum(keychain_t *chain, const struct yml_node *node,
@@ -44,6 +45,7 @@ bool conf_verify_dict(keychain_t *chain, const struct yml_node *node,
 bool conf_verify_on_click(keychain_t *chain, const struct yml_node *node);
 bool conf_verify_color(keychain_t *chain, const struct yml_node *node);
 bool conf_verify_font(keychain_t *chain, const struct yml_node *node);
+bool conf_verify_font_shaping(keychain_t *chain, const struct yml_node *node);
 
 bool conf_verify_particle(keychain_t *chain, const struct yml_node *node);
 bool conf_verify_particle_list_items(keychain_t *chain, const struct yml_node *node);

@@ -1,7 +1,7 @@
 project('yambar', 'c',
-        version: '1.7.0',
+        version: '1.8.0',
         license: 'MIT',
-        meson_version: '>=0.53.0',
+        meson_version: '>=0.58.0',
         default_options: ['c_std=c18',
                           'warning_level=1',
                           'werror=true',
@@ -18,7 +18,7 @@ endif
 
 # Compute the relative path used by compiler invocations.
 source_root = meson.current_source_dir().split('/')
-build_root = meson.build_root().split('/')
+build_root = meson.global_build_root().split('/')
 relative_dir_parts = []
 i = 0
 in_prefix = true
@@ -71,7 +71,7 @@ backend_wayland = wayland_client.found() and wayland_cursor.found()
 
 # "My" dependencies, fallback to subproject
 tllist = dependency('tllist', version: '>=1.0.1', fallback: 'tllist')
-fcft = dependency('fcft', version: ['>=2.4.0', '<3.0.0'], fallback: 'fcft')
+fcft = dependency('fcft', version: ['>=3.0.0', '<4.0.0'], fallback: 'fcft')
 
 add_project_arguments(
   ['-D_GNU_SOURCE'] +
@@ -107,14 +107,16 @@ version = custom_target(
   'generate_version',
   build_always_stale: true,
   output: 'version.h',
-  command: [env, 'LC_ALL=C', generate_version_sh, meson.project_version(), '@SOURCE_ROOT@', '@OUTPUT@'])
+  command: [env, 'LC_ALL=C', generate_version_sh, meson.project_version(), '@CURRENT_SOURCE_DIR@', '@OUTPUT@'])
 
 yambar = executable(
   'yambar',
+  'char32.c', 'char32.h',
   'color.h',
   'config-verify.c', 'config-verify.h',
   'config.c', 'config.h',
   'decoration.h',
+  'font-shaping.h',
   'log.c', 'log.h',
   'main.c',
   'module.c', 'module.h',

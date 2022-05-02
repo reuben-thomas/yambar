@@ -77,6 +77,7 @@ User defined.
 :  Arguments to pass to the script/binary.
 |  poll-interval
 :  integer
+:  no
 :  Number of seconds between each script run. If unset, continuous mode
    is used.
 
@@ -132,10 +133,9 @@ bar:
             title|string|{{title}}
         content:
           map:
-            tag: status
-            values:
-              Paused: {empty: {}}
-              Playing:
+            conditions:
+              status == Paused: {empty: {}}
+              status == Playing:
                 content: {string: {text: "{artist} - {title}"}}
 ```
 

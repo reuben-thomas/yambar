@@ -33,7 +33,7 @@ instantiated from this template, and represents an input device.
 |  identifiers
 :  list of strings
 :  yes
-:  Identifiers of input devices to monitor. Use _swaymsg -t get_inputs | grep 'identifier.*keyboard' | cut -d'"' -f4_ to see available devices.
+:  Identifiers of input devices to monitor. Use _swaymsg -t get_inputs | grep 'identifier.\*keyboard' | cut -d'"' -f4_ to see available devices.
 |  content
 :  particle
 :  yes

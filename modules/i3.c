@@ -37,6 +37,7 @@ struct workspace {
     bool visible;
     bool focused;
     bool urgent;
+    bool empty;
 
     struct {
         unsigned id;
@@ -59,6 +60,7 @@ struct private {
         size_t count;
     } ws_content;
 
+    bool strip_workspace_numbers;
     enum sort_mode sort_mode;
     tll(struct workspace) workspaces;
 
@@ -70,6 +72,22 @@ static int
 workspace_name_as_int(const char *name)
 {
     int name_as_int = 0;
+
+    /* First check for N:name pattern (set $ws1 “1:foobar”) */
+    const char *colon = strchr(name, ':');
+    if (colon != NULL) {
+        for (const char *p = name; p < colon; p++) {
+            if (!(*p >= '0' && *p < '9'))
+                return -1;
+
+            name_as_int *= 10;
+            name_as_int += *p - '0';
+        }
+
+        return name_as_int;
+    }
+
+    /* Then, if the name is a number *only* (set $ws1 1) */
     for (const char *p = name; *p != '\0'; p++) {
         if (!(*p >= '0' && *p <= '9'))
             return -1;
@@ -89,9 +107,14 @@ workspace_from_json(const struct json_object *json, struct workspace *ws)
     if (!json_object_object_get_ex(json, "name", &name) ||
         !json_object_object_get_ex(json, "output", &output))
     {
-        LOG_ERR("workspace reply/event without 'name' and/or 'output' property");
+        LOG_ERR("workspace reply/event without 'name' and/or 'output' "
+                "properties");
         return false;
     }
+
+    /* Sway only */
+    struct json_object *focus = NULL;
+    json_object_object_get_ex(json, "focus", &focus);
 
     /* Optional */
     struct json_object *visible = NULL, *focused = NULL, *urgent = NULL;
@@ -101,14 +124,22 @@ workspace_from_json(const struct json_object *json, struct workspace *ws)
 
     const char *name_as_string = json_object_get_string(name);
 
+    const size_t node_count = focus != NULL
+        ? json_object_array_length(focus)
+        : 0;
+
+    const bool is_empty = node_count == 0;
+    int name_as_int = workspace_name_as_int(name_as_string);
+
     *ws = (struct workspace) {
         .name = strdup(name_as_string),
-        .name_as_int = workspace_name_as_int(name_as_string),
+        .name_as_int = name_as_int,
         .persistent = false,
         .output = strdup(json_object_get_string(output)),
         .visible = json_object_get_boolean(visible),
         .focused = json_object_get_boolean(focused),
         .urgent = json_object_get_boolean(urgent),
+        .empty = is_empty,
         .window = {.title = NULL, .pid = -1},
     };
 
@@ -353,6 +384,7 @@ handle_workspace_event(int type, const struct json_object *json, void *_mod)
         else {
             workspace_free(ws);
             ws->name = strdup(current_name);
+            ws->empty = true;
             assert(ws->persistent);
         }
     }
@@ -425,11 +457,12 @@ handle_window_event(int type, const struct json_object *json, void *_mod)
     }
 
     const char *change_str = json_object_get_string(change);
+    bool is_new = strcmp(change_str, "new") == 0;
     bool is_focus = strcmp(change_str, "focus") == 0;
     bool is_close = strcmp(change_str, "close") == 0;
     bool is_title = strcmp(change_str, "title") == 0;
 
-    if (!is_focus && !is_close && !is_title)
+    if (!is_new && !is_focus && !is_close && !is_title)
         return true;
 
     mtx_lock(&mod->lock);
@@ -454,11 +487,18 @@ handle_window_event(int type, const struct json_object *json, void *_mod)
         ws->window.title = ws->window.application = NULL;
         ws->window.pid = -1;
 
+        /* May not be true, but e.g. a subsequent “focus” event will
+         * reset it... */
+        ws->empty = true;
+
         m->dirty = true;
         mtx_unlock(&mod->lock);
         return true;
 
     }
+
+    /* Non-close event - thus workspace cannot be empty */
+    ws->empty = false;
 
     struct json_object *container, *id, *name;
     if (!json_object_object_get_ex(json, "container", &container) ||
@@ -581,7 +621,7 @@ run(struct module *mod)
     if (!i3_get_socket_address(&addr))
         return 1;
 
-    int sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    int sock = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (sock == -1) {
         LOG_ERRNO("failed to create UNIX socket");
         return 1;
@@ -598,10 +638,18 @@ run(struct module *mod)
     for (size_t i = 0; i < m->persistent_count; i++) {
         const char *name_as_string = m->persistent_workspaces[i];
 
+        int name_as_int = workspace_name_as_int(name_as_string);
+        if (m->strip_workspace_numbers) {
+            const char *colon = strchr(name_as_string, ':');
+            if (colon != NULL)
+                name_as_string = colon++;
+        }
+
         struct workspace ws = {
             .name = strdup(name_as_string),
-            .name_as_int = workspace_name_as_int(name_as_string),
+            .name_as_int = name_as_int,
             .persistent = true,
+            .empty = true,
         };
         workspace_add(m, ws);
     }
@@ -695,12 +743,33 @@ content(struct module *mod)
             ws->visible ? ws->focused ? "focused" : "unfocused" :
             "invisible";
 
+        LOG_DBG("%s: visible=%s, focused=%s, urgent=%s, empty=%s, state=%s, "
+                "application=%s, title=%s, mode=%s",
+                ws->name,
+                ws->visible ? "yes" : "no",
+                ws->focused ? "yes" : "no",
+                ws->urgent ? "yes" : "no",
+                ws->empty ? "yes" : "no",
+                state,
+                ws->window.application,
+                ws->window.title,
+                m->mode);
+
+        const char *name = ws->name;
+
+        if (m->strip_workspace_numbers) {
+            const char *colon = strchr(name, ':');
+            if (colon != NULL)
+                name = colon + 1;
+        }
+
         struct tag_set tags = {
             .tags = (struct tag *[]){
-                tag_new_string(mod, "name", ws->name),
+                tag_new_string(mod, "name", name),
                 tag_new_bool(mod, "visible", ws->visible),
                 tag_new_bool(mod, "focused", ws->focused),
                 tag_new_bool(mod, "urgent", ws->urgent),
+                tag_new_bool(mod, "empty", ws->empty),
                 tag_new_string(mod, "state", state),
 
                 tag_new_string(mod, "application", ws->window.application),
@@ -708,7 +777,7 @@ content(struct module *mod)
 
                 tag_new_string(mod, "mode", m->mode),
             },
-            .count = 8,
+            .count = 9,
         };
 
         if (ws->focused) {
@@ -747,7 +816,8 @@ static struct module *
 i3_new(struct i3_workspaces workspaces[], size_t workspace_count,
        int left_spacing, int right_spacing, enum sort_mode sort_mode,
        size_t persistent_count,
-       const char *persistent_workspaces[static persistent_count])
+       const char *persistent_workspaces[static persistent_count],
+       bool strip_workspace_numbers)
 {
     struct private *m = calloc(1, sizeof(*m));
 
@@ -763,6 +833,7 @@ i3_new(struct i3_workspaces workspaces[], size_t workspace_count,
         m->ws_content.v[i].content = workspaces[i].content;
     }
 
+    m->strip_workspace_numbers = strip_workspace_numbers;
     m->sort_mode = sort_mode;
 
     m->persistent_count = persistent_count;
@@ -790,6 +861,8 @@ from_conf(const struct yml_node *node, struct conf_inherit inherited)
     const struct yml_node *right_spacing = yml_get_value(node, "right-spacing");
     const struct yml_node *sort = yml_get_value(node, "sort");
     const struct yml_node *persistent = yml_get_value(node, "persistent");
+    const struct yml_node *strip_workspace_number = yml_get_value(
+        node, "strip-workspace-numbers");
 
     int left = spacing != NULL ? yml_value_as_int(spacing) :
         left_spacing != NULL ? yml_value_as_int(left_spacing) : 0;
@@ -828,7 +901,9 @@ from_conf(const struct yml_node *node, struct conf_inherit inherited)
     }
 
     return i3_new(workspaces, yml_dict_length(c), left, right, sort_mode,
-                  persistent_count, persistent_workspaces);
+                  persistent_count, persistent_workspaces,
+                  (strip_workspace_number != NULL
+                   ? yml_value_as_bool(strip_workspace_number) : false));
 }
 
 static bool
@@ -878,11 +953,12 @@ static bool
 verify_conf(keychain_t *chain, const struct yml_node *node)
 {
     static const struct attr_info attrs[] = {
-        {"spacing", false, &conf_verify_int},
-        {"left-spacing", false, &conf_verify_int},
-        {"right-spacing", false, &conf_verify_int},
+        {"spacing", false, &conf_verify_unsigned},
+        {"left-spacing", false, &conf_verify_unsigned},
+        {"right-spacing", false, &conf_verify_unsigned},
         {"sort", false, &verify_sort},
         {"persistent", false, &verify_persistent},
+        {"strip-workspace-numbers", false, &conf_verify_bool},
         {"content", true, &verify_content},
         {"anchors", false, NULL},
         {NULL, false, NULL},

@@ -167,7 +167,7 @@ nl_pid_value(void)
 static int
 netlink_connect_rt(void)
 {
-    int sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+    int sock = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
     if (sock == -1) {
         LOG_ERRNO("failed to create netlink socket");
         return -1;
@@ -191,7 +191,7 @@ netlink_connect_rt(void)
 static int
 netlink_connect_genl(void)
 {
-    int sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_GENERIC);
+    int sock = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_GENERIC);
     if (sock == -1) {
         LOG_ERRNO("failed to create netlink socket");
         return -1;
@@ -308,6 +308,9 @@ static bool
 send_nl80211_request(struct private *m, uint8_t cmd, uint16_t flags, uint32_t seq)
 {
     if (m->ifindex < 0)
+        return false;
+
+    if (m->nl80211.family_id == (uint16_t)-1)
         return false;
 
     const struct {
@@ -692,6 +695,7 @@ handle_genl_ctrl(struct module *mod, uint16_t type, bool nested,
     case CTRL_ATTR_FAMILY_ID: {
         m->nl80211.family_id = *(const uint16_t *)payload;
         send_nl80211_get_interface(m);
+        send_nl80211_get_station(m);
         break;
     }
 
@@ -1253,7 +1257,7 @@ verify_conf(keychain_t *chain, const struct yml_node *node)
 {
     static const struct attr_info attrs[] = {
         {"name", true, &conf_verify_string},
-        {"poll-interval", false, &conf_verify_int},
+        {"poll-interval", false, &conf_verify_unsigned},
         MODULE_COMMON_ATTRS,
     };
 

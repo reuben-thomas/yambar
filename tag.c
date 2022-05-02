@@ -32,6 +32,30 @@ tag_name(const struct tag *tag)
     return priv->name;
 }
 
+static enum tag_type
+bool_type(const struct tag *tag)
+{
+    return TAG_TYPE_BOOL;
+}
+
+static enum tag_type
+int_type(const struct tag *tag)
+{
+    return TAG_TYPE_INT;
+}
+
+static enum tag_type
+float_type(const struct tag *tag)
+{
+    return TAG_TYPE_FLOAT;
+}
+
+static enum tag_type
+string_type(const struct tag *tag)
+{
+    return TAG_TYPE_STRING;
+}
+
 static long
 unimpl_min_max(const struct tag *tag)
 {
@@ -264,6 +288,7 @@ tag_new_int_realtime(struct module *owner, const char *name, long value,
     tag->owner = owner;
     tag->destroy = &destroy_int_and_float;
     tag->name = &tag_name;
+    tag->type = &int_type;
     tag->min = &int_min;
     tag->max = &int_max;
     tag->realtime = &int_realtime;
@@ -287,6 +312,7 @@ tag_new_bool(struct module *owner, const char *name, bool value)
     tag->owner = owner;
     tag->destroy = &destroy_int_and_float;
     tag->name = &tag_name;
+    tag->type = &bool_type;
     tag->min = &unimpl_min_max;
     tag->max = &unimpl_min_max;
     tag->realtime = &no_realtime;
@@ -310,6 +336,7 @@ tag_new_float(struct module *owner, const char *name, double value)
     tag->owner = owner;
     tag->destroy = &destroy_int_and_float;
     tag->name = &tag_name;
+    tag->type = &float_type;
     tag->min = &unimpl_min_max;
     tag->max = &unimpl_min_max;
     tag->realtime = &no_realtime;
@@ -333,6 +360,7 @@ tag_new_string(struct module *owner, const char *name, const char *value)
     tag->owner = owner;
     tag->destroy = &destroy_string;
     tag->name = &tag_name;
+    tag->type = &string_type;
     tag->min = &unimpl_min_max;
     tag->max = &unimpl_min_max;
     tag->realtime = &no_realtime;
@@ -545,12 +573,12 @@ tags_expand_template(const char *template, const struct tag_set *tags)
             case FMT_MIBYTE:
             case FMT_GIBYTE: {
                 const long divider =
-                    format == FMT_KBYTE ? 1024 :
-                    format == FMT_MBYTE ? 1024 * 1024 :
-                    format == FMT_GBYTE ? 1024 * 1024 * 1024 :
-                    format == FMT_KIBYTE ? 1000 :
-                    format == FMT_MIBYTE ? 1000 * 1000 :
-                    format == FMT_GIBYTE ? 1000 * 1000 * 1000 :
+                    format == FMT_KBYTE ? 1000 :
+                    format == FMT_MBYTE ? 1000 * 1000 :
+                    format == FMT_GBYTE ? 1000 * 1000 * 1000 :
+                    format == FMT_KIBYTE ? 1024 :
+                    format == FMT_MIBYTE ? 1024 * 1024 :
+                    format == FMT_GIBYTE ? 1024 * 1024 * 1024 :
                     1;
 
                 char str[24];

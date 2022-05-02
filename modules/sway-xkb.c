@@ -267,7 +267,7 @@ run(struct module *mod)
     if (!i3_get_socket_address(&addr))
         return 1;
 
-    int sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    int sock = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
     if (sock == -1) {
         LOG_ERRNO("failed to create UNIX socket");
         return 1;
@@ -374,9 +374,9 @@ static bool
 verify_conf(keychain_t *chain, const struct yml_node *node)
 {
     static const struct attr_info attrs[] = {
-        {"spacing", false, &conf_verify_int},
-        {"left-spacing", false, &conf_verify_int},
-        {"right-spacing", false, &conf_verify_int},
+        {"spacing", false, &conf_verify_unsigned},
+        {"left-spacing", false, &conf_verify_unsigned},
+        {"right-spacing", false, &conf_verify_unsigned},
         {"identifiers", true, &verify_identifiers},
         MODULE_COMMON_ATTRS,
     };

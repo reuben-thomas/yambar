@@ -1,5 +1,5 @@
 pkgname=yambar
-pkgver=1.7.0
+pkgver=1.8.0
 pkgrel=1
 pkgdesc="Simplistic and highly configurable status panel for X and Wayland"
 arch=('x86_64' 'aarch64')
@@ -15,7 +15,7 @@ depends=(
   'libudev.so'
   'json-c'
   'libmpdclient'
-  'fcft>=2.4.0')
+  'fcft>=3.0.0' 'fcft<4.0.0')
 optdepends=('xcb-util-errors: better X error messages')
 source=()
 

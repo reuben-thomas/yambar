@@ -197,7 +197,7 @@ from_conf(const struct yml_node *node, struct particle *common)
          yml_list_next(&it), idx++)
     {
         parts[idx] = conf_to_particle(
-            it.node, (struct conf_inherit){common->font, common->foreground});
+            it.node, (struct conf_inherit){common->font, common->font_shaping, common->foreground});
     }
 
     return particle_list_new(common, parts, count, left_spacing, right_spacing);
@@ -208,9 +208,9 @@ verify_conf(keychain_t *chain, const struct yml_node *node)
 {
     static const struct attr_info attrs[] = {
         {"items", true, &conf_verify_particle_list_items},
-        {"spacing", false, &conf_verify_int},
-        {"left-spacing", false, &conf_verify_int},
-        {"right-spacing", false, &conf_verify_int},
+        {"spacing", false, &conf_verify_unsigned},
+        {"left-spacing", false, &conf_verify_unsigned},
+        {"right-spacing", false, &conf_verify_unsigned},
         PARTICLE_COMMON_ATTRS,
     };
 

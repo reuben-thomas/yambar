@@ -5,6 +5,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <assert.h>
+#include <errno.h>
 
 #include <poll.h>
 #include <sys/stat.h>
@@ -35,8 +36,8 @@ struct partition {
     char *label;
 
     uint64_t size;
+    bool audio_cd;
 
-    /*tll(char *) mount_points;*/
     mount_point_list_t mount_points;
 };
 
@@ -141,13 +142,14 @@ content(struct module *mod)
                 tag_new_string(mod, "vendor", p->block->vendor),
                 tag_new_string(mod, "model", p->block->model),
                 tag_new_bool(mod, "optical", p->block->optical),
+                tag_new_bool(mod, "audio", p->audio_cd),
                 tag_new_string(mod, "device", p->dev_path),
                 tag_new_int_range(mod, "size", p->size, 0, p->block->size),
                 tag_new_string(mod, "label", label),
                 tag_new_bool(mod, "mounted", is_mounted),
                 tag_new_string(mod, "mount_point", mount_point),
             },
-            .count = 8,
+            .count = 9,
         };
 
         exposables[idx++] = m->label->instantiate(m->label, &tags);
@@ -162,11 +164,17 @@ content(struct module *mod)
 static void
 find_mount_points(const char *dev_path, mount_point_list_t *mount_points)
 {
-    FILE *f = fopen("/proc/self/mountinfo", "r");
-    assert(f != NULL);
+    int fd = open("/proc/self/mountinfo", O_RDONLY | O_CLOEXEC);
+    FILE *f = fd >= 0 ? fdopen(fd, "r") : NULL;
+
+    if (fd < 0 || f == NULL) {
+        LOG_ERRNO("failed to open /proc/self/mountinfo");
+        if (fd >= 0)
+            close(fd);
+        return;
+    }
 
     char line[4096];
-
     while (fgets(line, sizeof(line), f) != NULL) {
         char *dev = NULL, *path = NULL;
 
@@ -277,6 +285,64 @@ add_partition(struct module *mod, struct block_device *block,
             .dev_path = strdup(udev_device_get_devnode(dev)),
             .label = label != NULL ? strdup(label) : NULL,
             .size = size,
+            .audio_cd = false,
+            .mount_points = tll_init()}));
+
+    struct partition *p = &tll_back(block->partitions);
+    update_mount_points(p);
+    mtx_unlock(&mod->lock);
+
+    return p;
+}
+
+static struct partition *
+add_audio_cd(struct module *mod, struct block_device *block,
+             struct udev_device *dev)
+{
+    struct private *m = mod->private;
+    const char *_size = udev_device_get_sysattr_value(dev, "size");
+    uint64_t size = 0;
+    if (_size != NULL)
+        sscanf(_size, "%"SCNu64, &size);
+
+#if 0
+    struct udev_list_entry *e = NULL;
+    udev_list_entry_foreach(e, udev_device_get_properties_list_entry(dev)) {
+        LOG_DBG("%s -> %s", udev_list_entry_get_name(e), udev_list_entry_get_value(e));
+    }
+#endif
+
+    const char *devname = udev_device_get_property_value(dev, "DEVNAME");
+    if (devname != NULL) {
+        tll_foreach(m->ignore, it) {
+            if (strcmp(it->item, devname) == 0) {
+                LOG_DBG("ignoring %s because it is on the ignore list", devname);
+                return NULL;
+            }
+        }
+    }
+
+    const char *_track_count = udev_device_get_property_value(
+        dev, "ID_CDROM_MEDIA_TRACK_COUNT_AUDIO");
+    unsigned long track_count = strtoul(_track_count, NULL, 10);
+
+    char label[64];
+    snprintf(label, sizeof(label), "Audio CD - %lu tracks", track_count);
+
+    LOG_INFO("audio CD: add: %s: tracks=%lu, label=%s, size=%"PRIu64,
+             udev_device_get_devnode(dev), track_count, label, size);
+
+    mtx_lock(&mod->lock);
+
+    tll_push_back(
+        block->partitions,
+        ((struct partition){
+            .block = block,
+            .sys_path = strdup(udev_device_get_devpath(dev)),
+            .dev_path = strdup(udev_device_get_devnode(dev)),
+            .label = label != NULL ? strdup(label) : NULL,
+            .size = size,
+            .audio_cd = true,
             .mount_points = tll_init()}));
 
     struct partition *p = &tll_back(block->partitions);
@@ -295,7 +361,9 @@ del_partition(struct module *mod, struct block_device *block,
 
     tll_foreach(block->partitions, it) {
         if (strcmp(it->item.sys_path, sys_path) == 0) {
-            LOG_INFO("partition: del: %s", it->item.dev_path);
+            LOG_INFO("%s: del: %s",
+                     it->item.audio_cd ? "audio CD" : "partition",
+                     it->item.dev_path);
 
             free_partition(&it->item);
             tll_remove(block->partitions, it);
@@ -350,8 +418,16 @@ add_device(struct module *mod, struct udev_device *dev)
     const char *_optical = udev_device_get_property_value(dev, "ID_CDROM");
     bool optical = _optical != NULL && strcmp(_optical, "1") == 0;
 
+    const char *_media = udev_device_get_property_value(dev, "ID_CDROM_MEDIA");
+    bool media = _media != NULL && strcmp(_media, "1") == 0;
+
     const char *_fs_usage = udev_device_get_property_value(dev, "ID_FS_USAGE");
-    bool media = _fs_usage != NULL && strcmp(_fs_usage, "filesystem") == 0;
+    bool have_fs = _fs_usage != NULL && strcmp(_fs_usage, "filesystem") == 0;
+
+    const char *_audio_track_count = udev_device_get_property_value(
+        dev, "ID_CDROM_MEDIA_TRACK_COUNT_AUDIO");
+    unsigned long audio_track_count =
+        _audio_track_count != NULL ? strtoul(_audio_track_count, NULL, 10) : 0;
 
     LOG_DBG("device: add: %s: vendor=%s, model=%s, optical=%d, size=%"PRIu64,
             udev_device_get_devnode(dev), vendor, model, optical, size);
@@ -373,8 +449,12 @@ add_device(struct module *mod, struct udev_device *dev)
     mtx_unlock(&mod->lock);
 
     struct block_device *block = &tll_back(m->devices);
-    if (optical && media)
-        add_partition(mod, block, dev);
+    if (optical) {
+        if (have_fs)
+            add_partition(mod, block, dev);
+        else if (audio_track_count > 0)
+            add_audio_cd(mod, block, dev);
+    }
 
     return &tll_back(m->devices);
 }
@@ -408,31 +488,53 @@ change_device(struct module *mod, struct udev_device *dev)
     const char *sys_path = udev_device_get_devpath(dev);
     mtx_lock(&mod->lock);
 
+    struct block_device *block = NULL;
+
     tll_foreach(m->devices, it) {
         if (strcmp(it->item.sys_path, sys_path) == 0) {
-            LOG_DBG("device: change: %s", it->item.dev_path);
-
-            if (it->item.optical) {
-                const char *_media = udev_device_get_property_value(dev, "ID_FS_USAGE");
-                bool media = _media != NULL && strcmp(_media, "filesystem") == 0;
-                bool media_change = media != it->item.media;
-
-                it->item.media = media;
-                mtx_unlock(&mod->lock);
-
-                if (media_change) {
-                    LOG_INFO("device: change: %s: media %s",
-                             it->item.dev_path, media ? "inserted" : "removed");
-
-                    if (media)
-                        return add_partition(mod, &it->item, dev) != NULL;
-                    else
-                        return del_partition(mod, &it->item, dev);
-                }
-            }
+            block = &it->item;
+            break;
         }
     }
 
+    if (block == NULL)
+        goto out;
+
+    LOG_DBG("device: change: %s", block->dev_path);
+
+    if (!block->optical)
+        goto out;
+
+    const char *_media = udev_device_get_property_value(dev, "ID_CDROM_MEDIA");
+    bool media = _media != NULL && strcmp(_media, "1") == 0;
+
+    const char *_fs_usage = udev_device_get_property_value(dev, "ID_FS_USAGE");
+    bool have_fs = _fs_usage != NULL && strcmp(_fs_usage, "filesystem") == 0;
+
+    const char *_audio_track_count = udev_device_get_property_value(
+        dev, "ID_CDROM_MEDIA_TRACK_COUNT_AUDIO");
+    unsigned long audio_track_count =
+        _audio_track_count != NULL ? strtoul(_audio_track_count, NULL, 10) : 0;
+
+    bool media_change = media != block->media;
+
+    block->media = media;
+    mtx_unlock(&mod->lock);
+
+    if (media_change) {
+        LOG_INFO("device: change: %s: media %s",
+                 block->dev_path, media ? "inserted" : "removed");
+
+        if (media) {
+            if (have_fs)
+                return add_partition(mod, block, dev) != NULL;
+            else if (audio_track_count > 0)
+                return add_audio_cd(mod, block, dev) != NULL;
+        } else
+            return del_partition(mod, block, dev);
+    }
+
+out:
     mtx_unlock(&mod->lock);
     return false;
 }
@@ -545,7 +647,9 @@ run(struct module *mod)
 
     /* To be able to poll() mountinfo for changes, to detect
      * mount/unmount operations */
-    int mount_info_fd = open("/proc/self/mountinfo", O_RDONLY);
+    int mount_info_fd = open("/proc/self/mountinfo", O_RDONLY | O_CLOEXEC);
+
+    int ret = 1;
 
     while (true) {
         struct pollfd fds[] = {
@@ -553,10 +657,18 @@ run(struct module *mod)
             {.fd = udev_monitor_get_fd(dev_mon), .events = POLLIN},
             {.fd = mount_info_fd, .events = POLLPRI},
         };
-        poll(fds, 3, -1);
+        if (poll(fds, sizeof(fds) / sizeof(fds[0]), -1) < 0) {
+            if (errno == EINTR)
+                continue;
 
-        if (fds[0].revents & POLLIN)
+            LOG_ERRNO("failed to poll");
             break;
+        }
+
+        if (fds[0].revents & POLLIN) {
+            ret = 0;
+            break;
+        }
 
         bool update = false;
 
@@ -587,7 +699,7 @@ run(struct module *mod)
 
     udev_monitor_unref(dev_mon);
     udev_unref(udev);
-    return 0;
+    return ret;
 }
 
 static struct module *
@@ -652,9 +764,9 @@ static bool
 verify_conf(keychain_t *chain, const struct yml_node *node)
 {
     static const struct attr_info attrs[] = {
-        {"spacing", false, &conf_verify_int},
-        {"left-spacing", false, &conf_verify_int},
-        {"right-spacing", false, &conf_verify_int},
+        {"spacing", false, &conf_verify_unsigned},
+        {"left-spacing", false, &conf_verify_unsigned},
+        {"right-spacing", false, &conf_verify_unsigned},
         {"ignore", false, &verify_ignore},
         MODULE_COMMON_ATTRS,
     };

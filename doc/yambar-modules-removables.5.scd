@@ -22,6 +22,10 @@ instantiates the provided _content_ particle for each detected drive.
 |  optical
 :  bool
 :  True if the drive is an optical drive (CD-ROM, DVD-ROM etc)
+|  audio
+:  bool
+:  True if an optical drive has an audio CD inserted (i.e. this
+   property is always false for non-optical drives).
 |  device
 :  string
 :  Volume device name (typically */dev/sd?*)
@@ -70,13 +74,12 @@ bar:
     - removables:
         content:
           map:
-            tag: mounted
-            values:
-              false:
+            conditions:
+              ~mounted:
                 string:
                   on-click: udisksctl mount -b {device}
                   text: "{label}"
-              true:
+              mounted:
                 string:
                   on-click: udisksctl unmount -b {device}
                   text: "{label}"
