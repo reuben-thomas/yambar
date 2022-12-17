@@ -272,7 +272,7 @@ cpu_new(uint16_t interval, struct particle *template)
 static struct module *
 from_conf(const struct yml_node *node, struct conf_inherit inherited)
 {
-    const struct yml_node *interval = yml_get_value(node, "poll-interval");
+    const struct yml_node *interval = yml_get_value(node, "interval");
     const struct yml_node *c = yml_get_value(node, "content");
 
     return cpu_new(
@@ -299,7 +299,7 @@ static bool
 verify_conf(keychain_t *chain, const struct yml_node *node)
 {
     static const struct attr_info attrs[] = {
-        {"poll-interval", false, &conf_verify_interval},
+        {"interval", false, &conf_verify_interval},
         MODULE_COMMON_ATTRS,
     };
 
