@@ -168,9 +168,12 @@ process_line(char *line, struct module *module)
         }
         /* action */
         else if (index == 2) {
-            if (strcmp(string, "title") == 0)
+            if (strcmp(string, "title") == 0) {
                 line_mode = LINE_MODE_TITLE;
-            else if (strcmp(string, "fullscreen") == 0)
+                /* cleanup title for every new batch */
+                free(private->title);
+                private->title = NULL;
+            } else if (strcmp(string, "fullscreen") == 0)
                 line_mode = LINE_MODE_FULLSCREEN;
             else if (strcmp(string, "floating") == 0)
                 line_mode = LINE_MODE_FLOATING;
@@ -219,12 +222,20 @@ process_line(char *line, struct module *module)
                         dwl_tag->urgent = mask & urgent;
                     }
                 }
+            } else if (line_mode == LINE_MODE_TITLE) {
+                if (!private->title) {
+                    private->title = strdup(string);
+                } else {
+                    char *buf = NULL;
+                    if (asprintf(&buf, "%s %s", private->title, string) < 0) {
+                        LOG_ERRNO("asprintf");
+                        break;
+                    }
+                    free(private->title);
+                    private->title = buf;
+                }
             } else
                 switch (line_mode) {
-                case LINE_MODE_TITLE:
-                    free(private->title);
-                    private->title = strdup(string);
-                    break;
                 case LINE_MODE_FULLSCREEN:
                     private->fullscreen = (strcmp(string, "0") != 0);
                     break;
