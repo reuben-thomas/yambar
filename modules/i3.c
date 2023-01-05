@@ -29,7 +29,7 @@ struct ws_content {
 };
 
 struct workspace {
-    int id;
+    uint64_t id;
     char *name;
     int name_as_int; /* -1 if name is not a decimal number */
     bool persistent;
@@ -134,7 +134,7 @@ workspace_from_json(const struct json_object *json, struct workspace *ws)
     int name_as_int = workspace_name_as_int(name_as_string);
 
     *ws = (struct workspace) {
-        .id = json_object_get_int(id),
+        .id = json_object_get_int64(id),
         .name = strdup(name_as_string),
         .name_as_int = name_as_int,
         .persistent = false,
@@ -232,7 +232,7 @@ workspace_add(struct private *m, struct workspace ws)
 }
 
 static void
-workspace_del(struct private *m, int id)
+workspace_del(struct private *m, uint64_t id)
 {
     tll_foreach(m->workspaces, it) {
         struct workspace *ws = &it->item;
@@ -247,7 +247,7 @@ workspace_del(struct private *m, int id)
 }
 
 static struct workspace *
-workspace_lookup(struct private *m, int id)
+workspace_lookup(struct private *m, uint64_t id)
 {
     tll_foreach(m->workspaces, it) {
         struct workspace *ws = &it->item;
@@ -305,7 +305,7 @@ workspace_update_or_add(struct private *m, const struct json_object *ws_json)
     if (!json_object_object_get_ex(ws_json, "id", &_id))
         return false;
 
-    const int id = json_object_get_int(_id);
+    const uint64_t id = json_object_get_int64(_id);
     struct workspace *already_exists = workspace_lookup(m, id);
 
     if (already_exists == NULL) {
@@ -412,7 +412,7 @@ handle_workspace_event(int sock, int type, const struct json_object *json, void 
         return false;
     }
 
-    int current_id = json_object_get_int(_current_id);
+    uint64_t current_id = json_object_get_int64(_current_id);
 
     mtx_lock(&mod->lock);
 
@@ -461,7 +461,7 @@ handle_workspace_event(int sock, int type, const struct json_object *json, void 
         w->visible = true;
 
         /* Old workspace is no longer focused */
-        int old_id = json_object_get_int(_old_id);
+        uint64_t old_id = json_object_get_int64(_old_id);
         struct workspace *old_w = workspace_lookup(m, old_id);
         if (old_w != NULL)
             old_w->focused = false;
@@ -607,7 +607,7 @@ handle_window_event(int sock, int type, const struct json_object *json, void *_m
         return false;
     }
 
-    if (is_title && ws->window.id != json_object_get_int(id)) {
+    if (is_title && ws->window.id != json_object_get_int64(id)) {
         /* Ignore title changed event if it's not current window */
         mtx_unlock(&mod->lock);
         return true;
@@ -617,7 +617,7 @@ handle_window_event(int sock, int type, const struct json_object *json, void *_m
 
     const char *title = json_object_get_string(name);
     ws->window.title = title != NULL ? strdup(title) : NULL;
-    ws->window.id = json_object_get_int(id);
+    ws->window.id = json_object_get_int64(id);
 
     /*
      * Sway only!
@@ -641,9 +641,9 @@ handle_window_event(int sock, int type, const struct json_object *json, void *_m
 
     /* If PID has changed, update application name from /proc/<pid>/comm */
     else if (json_object_object_get_ex(container, "pid", &pid) &&
-             ws->window.pid != json_object_get_int(pid))
+             ws->window.pid != json_object_get_int64(pid))
     {
-        ws->window.pid = json_object_get_int(pid);
+        ws->window.pid = json_object_get_int64(pid);
 
         char path[64];
         snprintf(path, sizeof(path), "/proc/%u/comm", ws->window.pid);
@@ -831,7 +831,7 @@ content(struct module *mod)
          * template if this workspace doesn't have a specific
          * template */
         if (ws->name == NULL) {
-            LOG_ERR("%d %d", ws->name_as_int, ws->id);
+            LOG_ERR("%d %"PRIu64, ws->name_as_int, ws->id);
         }
         template = ws_content_for_name(m, ws->name);
         if (template == NULL) {
