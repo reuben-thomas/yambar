@@ -41,6 +41,8 @@
 * dwl module reporting only the last part of the title ([#251][251])
 * i3/sway: regression; persistent workspaces shown twice
   ([#253][253]).
+* i3/sway: Fix segfault when using yambar with i3 because of integer
+  overflow.
 
 [239]: https://codeberg.org/dnkl/yambar/issues/239
 [241]: https://codeberg.org/dnkl/yambar/issues/241
