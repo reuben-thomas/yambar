@@ -824,16 +824,24 @@ create_surface(struct wayland_backend *backend)
     zwlr_layer_surface_v1_add_listener(
         backend->layer_surface, &layer_surface_listener, backend);
 
-    /* Aligned to top, maximum width */
-    enum zwlr_layer_surface_v1_anchor top_or_bottom = bar->location == BAR_TOP
-        ? ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP
-        : ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
+    enum zwlr_layer_surface_v1_anchor full_anchor =
+        ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
+        ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM |
+        ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
+        ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+
+    if (bar->location & BAR_TOP)
+        full_anchor ^= ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM;
+    if (bar->location & BAR_BOTTOM)
+        full_anchor ^= ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP;
+    if (bar->location & BAR_LEFT)
+        full_anchor ^= ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT;
+    if (bar->location & BAR_RIGHT)
+        full_anchor ^= ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT;
 
     zwlr_layer_surface_v1_set_anchor(
-        backend->layer_surface,
-        ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
-        ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT |
-        top_or_bottom);
+            backend->layer_surface,
+            full_anchor);
 
     return true;
 }
@@ -1036,20 +1044,29 @@ update_size(struct wayland_backend *backend)
 
     backend->scale = scale;
 
-    int height = bar->height_with_border;
-    height /= scale;
-    height *= scale;
+    int height = bar->height;
     bar->height = height - bar->border.top_width - bar->border.bottom_width;
     bar->height_with_border = height;
 
-    zwlr_layer_surface_v1_set_size(
-        backend->layer_surface, 0, bar->height_with_border / scale);
-    zwlr_layer_surface_v1_set_exclusive_zone(
-        backend->layer_surface,
-        (bar->height_with_border + (bar->location == BAR_TOP
-                                    ? bar->border.bottom_margin
-                                    : bar->border.top_margin))
-        / scale);
+    if (bar->location == BAR_TOP || bar->location == BAR_BOTTOM) {
+        zwlr_layer_surface_v1_set_size(
+            backend->layer_surface, 0, bar->height_with_border / scale);
+        zwlr_layer_surface_v1_set_exclusive_zone(
+            backend->layer_surface,
+            (bar->height_with_border + (bar->location == BAR_TOP
+                                        ? bar->border.bottom_margin
+                                        : bar->border.top_margin))
+            / scale);
+    } else {
+        zwlr_layer_surface_v1_set_size(
+            backend->layer_surface, bar->width_with_border / scale, 0);
+        zwlr_layer_surface_v1_set_exclusive_zone(
+            backend->layer_surface,
+            (bar->width_with_border + (bar->location == BAR_LEFT
+                                        ? bar->border.right_margin
+                                        : bar->border.left_margin))
+            / scale);
+    }
 
     zwlr_layer_surface_v1_set_margin(
         backend->layer_surface,
@@ -1063,13 +1080,13 @@ update_size(struct wayland_backend *backend)
     wl_surface_commit(backend->surface);
     wl_display_roundtrip(backend->display);
 
-    if (backend->width == -1 ||
-        backend->height != bar->height_with_border) {
-        LOG_ERR("failed to get panel width");
+    if (backend->width == -1 || backend->height == -1) {
+        LOG_ERR("failed to get panel size");
         return false;
     }
 
     bar->width = backend->width;
+    bar->height = backend->height;
 
     /* Reload buffers */
     if (backend->next_buffer != NULL)

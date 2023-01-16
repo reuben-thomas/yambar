@@ -28,33 +28,68 @@
 #define max(x, y) ((x) > (y) ? (x) : (y))
 
 /*
- * Calculate total width of left/center/rigth groups.
+ * Repeat a given action for all widths in a section
+ * and store the result in out.
+ *
+ * Note: out should first be set to zero or the action will
+ * also be preformed on the pre-given value.
+ */
+static void
+accum_widths(const struct section *s, const struct private *b,
+    int *out, int (*act)(int a, int b))
+{
+    for (size_t i = 0; i < s->count; i++) {
+        struct exposable *e = s->exps[i];
+        if (e->height > 0)
+            *out = act(*out, b->left_spacing + e->width + b->right_spacing);
+    }
+}
+
+/*
+ * Repeat a given action for all heights in a section
+ * and store the result in out.
+ *
+ * Note: out should first be set to zero or the action will
+ * also be preformed on the pre-given value.
+ */
+static void
+accum_heights(const struct section *s, const struct private *b,
+    int *out, int (*act)(int a, int b))
+{
+    for (size_t i = 0; i < s->count; i++) {
+        struct exposable *e = s->exps[i];
+        if (e->height > 0)
+            *out = act(*out, b->top_spacing + e->height + b->bottom_spacing);
+    }
+}
+
+
+/* Add action */
+static int
+add (int a, int b)
+{
+    return a + b;
+}
+
+
+/* Max action */
+static int
+larger(int a, int b)
+{
+    return max(a, b);
+}
+
+/*
+ * Calculate total width of left/center/right groups.
  * Note: begin_expose() must have been called
  */
 static void
 calculate_widths(const struct private *b, int *left, int *center, int *right)
 {
-    *left = 0;
-    *center = 0;
-    *right = 0;
-
-    for (size_t i = 0; i < b->left.count; i++) {
-        struct exposable *e = b->left.exps[i];
-        if (e->width > 0)
-            *left += b->left_spacing + e->width + b->right_spacing;
-    }
-
-    for (size_t i = 0; i < b->center.count; i++) {
-        struct exposable *e = b->center.exps[i];
-        if (e->width > 0)
-            *center += b->left_spacing + e->width + b->right_spacing;
-    }
-
-    for (size_t i = 0; i < b->right.count; i++) {
-        struct exposable *e = b->right.exps[i];
-        if (e->width > 0)
-            *right += b->left_spacing + e->width + b->right_spacing;
-    }
+    *left = *center = *right = 0;
+    accum_widths(&(b->left), b, left, &add);
+    accum_widths(&(b->center), b, center, &add);
+    accum_widths(&(b->right), b, right, &add);
 
     /* No spacing on the edges (that's what the margins are for) */
     if (*left > 0)
@@ -69,6 +104,68 @@ calculate_widths(const struct private *b, int *left, int *center, int *right)
     assert(*right >= 0);
 }
 
+/*
+ * Calculate total height of left/center/right groups.
+ * Note: begin_expose() must have been called
+ */
+static void
+calculate_heights (const struct private *b, int *top, int *middle, int *bottom)
+{
+    *top = 0;
+    *middle = 0;
+    *bottom = 0;
+
+    accum_heights(&(b->left), b, top, &add);
+    accum_heights(&(b->center), b, middle, &add);
+    accum_heights(&(b->right), b, bottom, &add);
+
+    /* No spacing on the edges (that's what the margins are for) */
+    if (*top > 0)
+        *top -= b->top_spacing + b->bottom_spacing;
+    if (*middle > 0)
+        *middle -= b->top_spacing + b->bottom_spacing;
+    if (*bottom > 0)
+        *bottom -= b->top_spacing + b->bottom_spacing;
+
+    assert(*top >= 0);
+    assert(*middle >= 0);
+    assert(*bottom >= 0);
+}
+
+/*
+ * Calculate the minimum width the bar needs to be to show all particles.
+ * This assumes the bar is at the left or right of screen.
+ * NOTE: begin_expose() must have been called
+ */
+static int
+min_bar_width (const struct private *b)
+{
+    int max = 0;
+
+    accum_widths(&(b->left), b, &max, &larger);
+    accum_widths(&(b->center), b, &max, &larger);
+    accum_widths(&(b->right), b, &max, &larger);
+
+    return max;
+}
+
+/*
+ * Calculate the minimum height the bar needs to be to show all particles.
+ * This assumes the bar is at the top or bottom of the screen.
+ * NOTE: begin_expose() must have been called
+ */
+static int
+min_bar_height (const struct private *b)
+{
+    int max = 0;
+
+    accum_heights(&(b->left), b, &max, &larger);
+    accum_heights(&(b->center), b, &max, &larger);
+    accum_heights(&(b->right), b, &max, &larger);
+
+    return max;
+}
+
 static void
 expose(const struct bar *_bar)
 {
@@ -77,7 +174,7 @@ expose(const struct bar *_bar)
 
     pixman_image_fill_rectangles(
         PIXMAN_OP_SRC, pix, &bar->background, 1,
-        &(pixman_rectangle16_t){0, 0, bar->width, bar->height_with_border});
+        &(pixman_rectangle16_t){0, 0, bar->width_with_border, bar->height_with_border});
 
     pixman_image_fill_rectangles(
         PIXMAN_OP_OVER, pix, &bar->border.color, 4,
@@ -86,19 +183,19 @@ expose(const struct bar *_bar)
             {0, 0, bar->border.left_width, bar->height_with_border},
 
             /* Right */
-            {bar->width - bar->border.right_width,
+            {bar->width_with_border - bar->border.right_width,
              0, bar->border.right_width, bar->height_with_border},
 
             /* Top */
             {bar->border.left_width,
              0,
-             bar->width - bar->border.left_width - bar->border.right_width,
+             bar->width_with_border - bar->border.left_width - bar->border.right_width,
              bar->border.top_width},
 
             /* Bottom */
             {bar->border.left_width,
              bar->height_with_border - bar->border.bottom_width,
-             bar->width - bar->border.left_width - bar->border.right_width,
+             bar->width_with_border - bar->border.left_width - bar->border.right_width,
              bar->border.bottom_width},
         });
 
@@ -296,6 +393,9 @@ run(struct bar *_bar)
 
     bar->height_with_border =
         bar->height + bar->border.top_width + bar->border.bottom_width;
+    
+    bar->width_with_border =
+        bar->width + bar->border.left_width + bar->border.right_width;
 
     if (!bar->backend.iface->setup(_bar)) {
         bar->backend.iface->cleanup(_bar);
@@ -473,11 +573,16 @@ bar_new(const struct bar_config *config)
     priv->layer = config->layer;
     priv->location = config->location;
     priv->height = config->height;
+    priv->width = config->width;
     priv->background = config->background;
     priv->left_spacing = config->left_spacing;
     priv->right_spacing = config->right_spacing;
     priv->left_margin = config->left_margin;
     priv->right_margin = config->right_margin;
+    priv->top_spacing = config->top_spacing;
+    priv->bottom_spacing = config->bottom_spacing;
+    priv->top_margin = config->top_margin;
+    priv->bottom_margin = config->bottom_margin;
     priv->trackpad_sensitivity = config->trackpad_sensitivity;
     priv->border.left_width = config->border.left_width;
     priv->border.right_width = config->border.right_width;

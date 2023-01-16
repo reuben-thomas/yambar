@@ -290,9 +290,6 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
      * Required attributes
      */
 
-    const struct yml_node *height = yml_get_value(bar, "height");
-    conf.height = yml_value_as_int(height);
-
     const struct yml_node *location = yml_get_value(bar, "location");
     conf.location = strcmp(yml_value_as_string(location), "top") == 0
         ? BAR_TOP : BAR_BOTTOM;
@@ -303,6 +300,18 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
     /*
      * Optional attributes
      */
+
+    const struct yml_node *height = yml_get_value(bar, "height");
+    if (height != NULL)
+        conf.height = yml_value_as_int(height);
+    else
+        conf.height = -1; // Represents 'auto' height
+    
+    const struct yml_node *width = yml_get_value(bar, "width");
+    if (width != NULL)
+        conf.width = yml_value_as_int(height);
+    else
+        conf.width = -1; // Represents 'auto' width
 
     const struct yml_node *monitor = yml_get_value(bar, "monitor");
     if (monitor != NULL)
@@ -322,6 +331,7 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
 
     const struct yml_node *spacing = yml_get_value(bar, "spacing");
     if (spacing != NULL)
+        conf.top_spacing = conf.bottom_spacing =
         conf.left_spacing = conf.right_spacing = yml_value_as_int(spacing);
 
     const struct yml_node *left_spacing = yml_get_value(bar, "left-spacing");
@@ -331,9 +341,18 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
     const struct yml_node *right_spacing = yml_get_value(bar, "right-spacing");
     if (right_spacing != NULL)
         conf.right_spacing = yml_value_as_int(right_spacing);
+    
+    const struct yml_node *top_spacing = yml_get_value(bar, "top-spacing");
+    if (top_spacing != NULL)
+        conf.left_spacing = yml_value_as_int(top_spacing);
+
+    const struct yml_node *bottom_spacing = yml_get_value(bar, "bottom-spacing");
+    if (bottom_spacing != NULL)
+        conf.bottom_spacing = yml_value_as_int(bottom_spacing);
 
     const struct yml_node *margin = yml_get_value(bar, "margin");
     if (margin != NULL)
+        conf.top_margin = conf.bottom_margin =
         conf.left_margin = conf.right_margin = yml_value_as_int(margin);
 
     const struct yml_node *left_margin = yml_get_value(bar, "left-margin");
@@ -343,6 +362,14 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
     const struct yml_node *right_margin = yml_get_value(bar, "right-margin");
     if (right_margin != NULL)
         conf.right_margin = yml_value_as_int(right_margin);
+    
+    const struct yml_node *top_margin = yml_get_value(bar, "top-margin");
+    if (top_margin != NULL)
+        conf.left_margin = yml_value_as_int(top_margin);
+
+    const struct yml_node *bottom_margin = yml_get_value(bar, "bottom-margin");
+    if (bottom_margin != NULL)
+        conf.bottom_margin = yml_value_as_int(bottom_margin);
 
     const struct yml_node *trackpad_sensitivity =
         yml_get_value(bar, "trackpad-sensitivity");

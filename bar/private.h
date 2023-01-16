@@ -3,6 +3,12 @@
 #include "../bar/bar.h"
 #include "backend.h"
 
+struct section {
+        struct module **mods;
+        struct exposable **exps;
+        size_t count;
+};
+
 struct private {
     /* From bar_config */
     char *monitor;
@@ -11,6 +17,9 @@ struct private {
     int height;
     int left_spacing, right_spacing;
     int left_margin, right_margin;
+    int width;
+    int top_spacing, bottom_spacing;
+    int top_margin, bottom_margin;
     int trackpad_sensitivity;
 
     pixman_color_t background;
@@ -23,25 +32,13 @@ struct private {
         int top_margin, bottom_margin;
     } border;
 
-    struct {
-        struct module **mods;
-        struct exposable **exps;
-        size_t count;
-    } left;
-    struct {
-        struct module **mods;
-        struct exposable **exps;
-        size_t count;
-    } center;
-    struct {
-        struct module **mods;
-        struct exposable **exps;
-        size_t count;
-    } right;
+    struct section left;
+    struct section center;
+    struct section right;
 
     /* Calculated run-time */
-    int width;
     int height_with_border;
+    int width_with_border;
 
     pixman_image_t *pix;
 
