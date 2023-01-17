@@ -1044,13 +1044,16 @@ update_size(struct wayland_backend *backend)
 
     backend->scale = scale;
 
-    int height = bar->height;
-    bar->height = height - bar->border.top_width - bar->border.bottom_width;
-    bar->height_with_border = height;
+    int height = bar->height < 0 ? 0 : bar->height_with_border;
+    int width = bar->width < 0 ? 0 : bar->width_with_border;
+
+    LOG_INFO("Attempting to set %dx%d", width, height);
+
+    // TODO: Somehow set up width and height properly
+    // I need to read more to understand how bar->width and bar->height are used
+    zwlr_layer_surface_v1_set_size(backend->layer_surface, width / scale, height / scale);
 
     if (bar->location == BAR_TOP || bar->location == BAR_BOTTOM) {
-        zwlr_layer_surface_v1_set_size(
-            backend->layer_surface, 0, bar->height_with_border / scale);
         zwlr_layer_surface_v1_set_exclusive_zone(
             backend->layer_surface,
             (bar->height_with_border + (bar->location == BAR_TOP
@@ -1058,8 +1061,6 @@ update_size(struct wayland_backend *backend)
                                         : bar->border.top_margin))
             / scale);
     } else {
-        zwlr_layer_surface_v1_set_size(
-            backend->layer_surface, bar->width_with_border / scale, 0);
         zwlr_layer_surface_v1_set_exclusive_zone(
             backend->layer_surface,
             (bar->width_with_border + (bar->location == BAR_LEFT
@@ -1084,9 +1085,6 @@ update_size(struct wayland_backend *backend)
         LOG_ERR("failed to get panel size");
         return false;
     }
-
-    bar->width = backend->width;
-    bar->height = backend->height;
 
     /* Reload buffers */
     if (backend->next_buffer != NULL)

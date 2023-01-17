@@ -52,7 +52,7 @@ struct exposable {
     void *private;
 
     int width; /* Should be set by begin_expose(), at latest */
-    int height;
+    int height; /* Should be set by begin_expose(), at latest */
     
     char *on_click[MOUSE_BTN_COUNT];
 

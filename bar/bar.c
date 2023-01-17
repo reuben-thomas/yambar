@@ -35,7 +35,8 @@
  * also be preformed on the pre-given value.
  */
 static void
-accum_widths(const struct section *s, const struct private *b,
+accum_widths(
+    const struct section *s, const struct private *b,
     int *out, int (*act)(int a, int b))
 {
     for (size_t i = 0; i < s->count; i++) {
@@ -104,6 +105,7 @@ calculate_widths(const struct private *b, int *left, int *center, int *right)
     assert(*right >= 0);
 }
 
+#if 0
 /*
  * Calculate total height of left/center/right groups.
  * Note: begin_expose() must have been called
@@ -131,7 +133,7 @@ calculate_heights (const struct private *b, int *top, int *middle, int *bottom)
     assert(*middle >= 0);
     assert(*bottom >= 0);
 }
-
+#endif
 /*
  * Calculate the minimum width the bar needs to be to show all particles.
  * This assumes the bar is at the left or right of screen.
@@ -140,13 +142,13 @@ calculate_heights (const struct private *b, int *top, int *middle, int *bottom)
 static int
 min_bar_width (const struct private *b)
 {
-    int max = 0;
+    int min = 0;
 
-    accum_widths(&(b->left), b, &max, &larger);
-    accum_widths(&(b->center), b, &max, &larger);
-    accum_widths(&(b->right), b, &max, &larger);
+    accum_widths(&(b->left), b, &min, &larger);
+    accum_widths(&(b->center), b, &min, &larger);
+    accum_widths(&(b->right), b, &min, &larger);
 
-    return max;
+    return min;
 }
 
 /*
@@ -157,13 +159,103 @@ min_bar_width (const struct private *b)
 static int
 min_bar_height (const struct private *b)
 {
+    LOG_INFO("Mining");
+    int min = 0;
+
+    accum_heights(&(b->left), b, &min, &larger);
+    accum_heights(&(b->center), b, &min, &larger);
+    accum_heights(&(b->right), b, &min, &larger);
+
+    return min;
+}
+
+/*
+ * Calculate the minimum width the bar needs to be to show all particles.
+ * This assumes the bar is at the left or right of screen.
+ * NOTE: begin_expose() must have been called
+ */
+static int
+max_bar_width (const struct private *b)
+{
     int max = 0;
 
-    accum_heights(&(b->left), b, &max, &larger);
-    accum_heights(&(b->center), b, &max, &larger);
-    accum_heights(&(b->right), b, &max, &larger);
+    accum_widths(&(b->left), b, &max, &add);
+    accum_widths(&(b->center), b, &max, &add);
+    accum_widths(&(b->right), b, &max, &add);
+    LOG_INFO("Max: %d", max);
 
     return max;
+}
+
+/*
+ * Calculate the minimum height the bar needs to be to show all particles.
+ * This assumes the bar is at the top or bottom of the screen.
+ * NOTE: begin_expose() must have been called
+ */
+static int
+max_bar_height (const struct private *b)
+{
+    int max = 0;
+
+    accum_heights(&(b->left), b, &max, &add);
+    accum_heights(&(b->center), b, &max, &add);
+    accum_heights(&(b->right), b, &max, &add);
+
+    return max;
+}
+
+static void
+begin_expose_mods(const struct section *s)
+{
+    for (size_t i = 0; i < s->count; i++)
+    {
+        struct module *m = s->mods[i];
+        struct exposable *e = s->exps[i];
+        if (e != NULL)
+            e->destroy(e);
+        s->exps[i] = module_begin_expose(m);
+        assert(s->exps[i]->width >= 0);
+    }
+}
+
+static void
+bar_recalc_size(struct private *bar)
+{
+    LOG_INFO("Bar width auto? %s",
+        bar->width < 0 ? "yes" : "no");
+    LOG_INFO("Bar height auto? %s",
+        bar->height < 0 ? "yes" : "no");
+
+    begin_expose_mods(&(bar->left));
+    begin_expose_mods(&(bar->center));
+    begin_expose_mods(&(bar->right));
+
+    if (bar->height < 0){
+        if (bar->location == BAR_TOP || bar->location == BAR_BOTTOM)
+            bar->height_with_border =
+            min_bar_height(bar) + bar->border.top_width + bar->border.bottom_width;
+        else
+            bar->height_with_border =
+            max_bar_height(bar) + bar->border.top_width + bar->border.bottom_width;
+    } else
+        bar->height_with_border =
+            bar->height + bar->border.top_width + bar->border.bottom_width;
+
+    if (bar->width < 0){
+        if (bar->location == BAR_LEFT || bar->location == BAR_RIGHT)
+            bar->width_with_border =
+            min_bar_width(bar) + bar->border.left_width + bar->border.right_width;
+        else
+            bar->width_with_border =
+            max_bar_width(bar) + bar->border.left_width + bar->border.right_width;
+    }else
+        bar->width_with_border =
+            bar->width + bar->border.top_width + bar->border.bottom_width;
+    
+    LOG_INFO("Bar width calculated size %d",
+        bar->width);
+    LOG_INFO("Bar height calculated size %d",
+        bar->height);
 }
 
 static void
@@ -198,33 +290,6 @@ expose(const struct bar *_bar)
              bar->width_with_border - bar->border.left_width - bar->border.right_width,
              bar->border.bottom_width},
         });
-
-    for (size_t i = 0; i < bar->left.count; i++) {
-        struct module *m = bar->left.mods[i];
-        struct exposable *e = bar->left.exps[i];
-        if (e != NULL)
-            e->destroy(e);
-        bar->left.exps[i] = module_begin_expose(m);
-        assert(bar->left.exps[i]->width >= 0);
-    }
-
-    for (size_t i = 0; i < bar->center.count; i++) {
-        struct module *m = bar->center.mods[i];
-        struct exposable *e = bar->center.exps[i];
-        if (e != NULL)
-            e->destroy(e);
-        bar->center.exps[i] = module_begin_expose(m);
-        assert(bar->center.exps[i]->width >= 0);
-    }
-
-    for (size_t i = 0; i < bar->right.count; i++) {
-        struct module *m = bar->right.mods[i];
-        struct exposable *e = bar->right.exps[i];
-        if (e != NULL)
-            e->destroy(e);
-        bar->right.exps[i] = module_begin_expose(m);
-        assert(bar->right.exps[i]->width >= 0);
-    }
 
     int left_width, center_width, right_width;
     calculate_widths(bar, &left_width, &center_width, &right_width);
@@ -278,7 +343,8 @@ expose(const struct bar *_bar)
 static void
 refresh(const struct bar *bar)
 {
-    const struct private *b = bar->private;
+    struct private *b = bar->private;
+    bar_recalc_size(b);
     b->backend.iface->refresh(bar);
 }
 
@@ -391,11 +457,7 @@ run(struct bar *_bar)
 {
     struct private *bar = _bar->private;
 
-    bar->height_with_border =
-        bar->height + bar->border.top_width + bar->border.bottom_width;
-    
-    bar->width_with_border =
-        bar->width + bar->border.left_width + bar->border.right_width;
+    bar_recalc_size(bar);
 
     if (!bar->backend.iface->setup(_bar)) {
         bar->backend.iface->cleanup(_bar);
