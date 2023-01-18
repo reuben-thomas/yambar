@@ -62,7 +62,7 @@ accum_heights(const struct section *s, const struct private *b,
         if (e->height > 0)
             *out = act(*out, b->top_spacing + e->height + b->bottom_spacing);
     }
-}
+    }
 
 
 /* Add action */
@@ -169,41 +169,6 @@ min_bar_height (const struct private *b)
     return min;
 }
 
-/*
- * Calculate the minimum width the bar needs to be to show all particles.
- * This assumes the bar is at the left or right of screen.
- * NOTE: begin_expose() must have been called
- */
-static int
-max_bar_width (const struct private *b)
-{
-    int max = 0;
-
-    accum_widths(&(b->left), b, &max, &add);
-    accum_widths(&(b->center), b, &max, &add);
-    accum_widths(&(b->right), b, &max, &add);
-    LOG_INFO("Max: %d", max);
-
-    return max;
-}
-
-/*
- * Calculate the minimum height the bar needs to be to show all particles.
- * This assumes the bar is at the top or bottom of the screen.
- * NOTE: begin_expose() must have been called
- */
-static int
-max_bar_height (const struct private *b)
-{
-    int max = 0;
-
-    accum_heights(&(b->left), b, &max, &add);
-    accum_heights(&(b->center), b, &max, &add);
-    accum_heights(&(b->right), b, &max, &add);
-
-    return max;
-}
-
 static void
 begin_expose_mods(const struct section *s)
 {
@@ -221,9 +186,9 @@ begin_expose_mods(const struct section *s)
 static void
 bar_recalc_size(struct private *bar)
 {
-    LOG_INFO("Bar width auto? %s",
+    LOG_DBG("Bar width auto? %s",
         bar->width < 0 ? "yes" : "no");
-    LOG_INFO("Bar height auto? %s",
+    LOG_DBG("Bar height auto? %s",
         bar->height < 0 ? "yes" : "no");
 
     begin_expose_mods(&(bar->left));
@@ -231,30 +196,28 @@ bar_recalc_size(struct private *bar)
     begin_expose_mods(&(bar->right));
 
     if (bar->height < 0){
-        if (bar->location == BAR_TOP || bar->location == BAR_BOTTOM)
+        if ((bar->location & (BAR_TOP | BAR_BOTTOM)) == bar->location)
             bar->height_with_border =
-            min_bar_height(bar) + bar->border.top_width + bar->border.bottom_width;
+                min_bar_height(bar) + bar->border.top_width + bar->border.bottom_width;
         else
-            bar->height_with_border =
-            max_bar_height(bar) + bar->border.top_width + bar->border.bottom_width;
+            bar->height_with_border = 0;
     } else
         bar->height_with_border =
             bar->height + bar->border.top_width + bar->border.bottom_width;
 
     if (bar->width < 0){
-        if (bar->location == BAR_LEFT || bar->location == BAR_RIGHT)
+        if ((bar->location & (BAR_LEFT | BAR_RIGHT)) == bar->location)
             bar->width_with_border =
-            min_bar_width(bar) + bar->border.left_width + bar->border.right_width;
+                min_bar_width(bar) + bar->border.left_width + bar->border.right_width;
         else
-            bar->width_with_border =
-            max_bar_width(bar) + bar->border.left_width + bar->border.right_width;
+            bar->width_with_border = 0;
     }else
         bar->width_with_border =
             bar->width + bar->border.top_width + bar->border.bottom_width;
     
-    LOG_INFO("Bar width calculated size %d",
+    LOG_DBG("Bar width calculated size %d",
         bar->width);
-    LOG_INFO("Bar height calculated size %d",
+    LOG_DBG("Bar height calculated size %d",
         bar->height);
 }
 
@@ -293,7 +256,7 @@ expose(const struct bar *_bar)
 
     int left_width, center_width, right_width;
     calculate_widths(bar, &left_width, &center_width, &right_width);
-
+# if 0
     int y = bar->border.top_width;
     int x = bar->border.left_width + bar->left_margin - bar->left_spacing;
     pixman_region32_t clip;
@@ -335,7 +298,7 @@ expose(const struct bar *_bar)
         if (e->width > 0)
             x += bar->left_spacing + e->width + bar->right_spacing;
     }
-
+#endif
     bar->backend.iface->commit(_bar);
 }
 

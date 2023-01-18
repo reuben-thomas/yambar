@@ -289,11 +289,14 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
     /*
      * Required attributes
      */
-
     const struct yml_node *location = yml_get_value(bar, "location");
-    conf.location = strcmp(yml_value_as_string(location), "top") == 0
-        ? BAR_TOP : BAR_BOTTOM;
-
+    const char *location_str = yml_value_as_string(location);
+    conf.location = strcmp(location_str, "top") == 0
+        ? BAR_TOP
+            : strcmp(location_str, "left") == 0
+                ? BAR_LEFT
+                : strcmp(location_str, "right") == 0
+                    ? BAR_RIGHT : BAR_BOTTOM;
     const struct yml_node *background = yml_get_value(bar, "background");
     conf.background = conf_to_color(background);
 
@@ -309,7 +312,7 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
     
     const struct yml_node *width = yml_get_value(bar, "width");
     if (width != NULL)
-        conf.width = yml_value_as_int(height);
+        conf.width = yml_value_as_int(width);
     else
         conf.width = -1; // Represents 'auto' width
 

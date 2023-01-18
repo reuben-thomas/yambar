@@ -421,7 +421,7 @@ verify_bar_border(keychain_t *chain, const struct yml_node *node)
 static bool
 verify_bar_location(keychain_t *chain, const struct yml_node *node)
 {
-    return conf_verify_enum(chain, node, (const char *[]){"top", "bottom"}, 2);
+    return conf_verify_enum(chain, node, (const char *[]){"top", "left", "right", "bottom"}, 4);
 }
 
 static bool
@@ -442,9 +442,10 @@ conf_verify_bar(const struct yml_node *bar)
     chain_push(&chain, "bar");
 
     static const struct attr_info attrs[] = {
-        {"height", true, &conf_verify_unsigned},
         {"location", true, &verify_bar_location},
         {"background", true, &conf_verify_color},
+        {"height", false, &conf_verify_unsigned},
+        {"width", false, &conf_verify_unsigned},
 
         {"monitor", false, &conf_verify_string},
         {"layer", false, &verify_bar_layer},

@@ -17,7 +17,7 @@ struct bar {
     const char *(*output_name)(const struct bar *bar);
 };
 
-enum bar_location { BAR_TOP, BAR_BOTTOM, BAR_LEFT, BAR_RIGHT };
+enum bar_location { BAR_TOP = 0b1, BAR_BOTTOM = 0b10, BAR_LEFT = 0b100, BAR_RIGHT = 0b1000 };
 enum bar_layer { BAR_LAYER_TOP, BAR_LAYER_BOTTOM };
 enum bar_backend { BAR_BACKEND_AUTO, BAR_BACKEND_XCB, BAR_BACKEND_WAYLAND };
 

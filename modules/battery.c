@@ -136,9 +136,10 @@ content(struct module *mod)
                            m->state == STATE_DISCHARGING ? "discharging" :
                            "unknown"),
             tag_new_int_range(mod, "capacity", m->capacity, 0, 100),
+            tag_new_int_range(mod, "charge", 50, 0, 100),
             tag_new_string(mod, "estimate", estimate),
         },
-        .count = 6,
+        .count = 7,
     };
 
     mtx_unlock(&mod->lock);
