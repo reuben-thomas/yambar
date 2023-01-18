@@ -12,7 +12,9 @@
 
 struct private {
     char *tag;
+    
     int width;
+    bool vertical;
 
     struct particle *start_marker;
     struct particle *end_marker;
@@ -23,6 +25,7 @@ struct private {
 
 struct eprivate {
     size_t count;
+    bool vertical;
     struct exposable **exposables;
 };
 
@@ -60,22 +63,34 @@ begin_expose(struct exposable *exposable)
     bool have_at_least_one = false;
 
     exposable->width = 0;
+    exposable->height = 0;
 
     /* Sub-exposables */
     for (size_t i = 0; i < e->count; i++) {
-        int width = e->exposables[i]->begin_expose(e->exposables[i]);
+        struct exposable *ee = e->exposables[i];
+        ee->begin_expose(e->exposables[i]);
 
-        assert(width >= 0);
-        if (width >= 0) {
-            exposable->width += width;
+        assert(ee->width >= 0 && ee->height >= 0);
+        if (ee->width > 0 && ee->height > 0) {
+            exposable->width += ee->width;
+            if (ee->height > exposable->height)
+                exposable->height = ee->height;
             have_at_least_one = true;
         }
+    }
+
+    if (e->vertical) {
+        int tmp = exposable->height;
+        exposable->height = exposable->width;
+        exposable->width = tmp;
     }
 
     /* Margins */
     if (have_at_least_one) {
         exposable->width += exposable->particle->left_margin +
             exposable->particle->right_margin;
+        exposable->height += exposable->particle->top_margin +
+            exposable->particle->bottom_margin;
     } else
         assert(exposable->width == 0);
 
@@ -89,6 +104,7 @@ expose(const struct exposable *exposable, pixman_image_t *pix, int x, int y, int
 
     exposable_render_deco(exposable, pix, x, y);
 
+    // TODO: In the case of a vertical bar, rotate and translate the bar into the proper position
     x += exposable->particle->left_margin;
     for (size_t i = 0; i < e->count; i++) {
         e->exposables[i]->expose(e->exposables[i], pix, x, y, height);
@@ -212,6 +228,8 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
         empty_count +   /* After current position */
         1);             /* End marker */
 
+    epriv->vertical = p->vertical;
+
     epriv->exposables = malloc(epriv->count * sizeof(epriv->exposables[0]));
 
     size_t idx = 0;
@@ -271,7 +289,7 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
 }
 
 static struct particle *
-progress_bar_new(struct particle *common, const char *tag, int width,
+progress_bar_new(struct particle *common, const char *tag, int width, bool vertical,
                  struct particle *start_marker, struct particle *end_marker,
                  struct particle *fill, struct particle *empty,
                  struct particle *indicator)
@@ -279,6 +297,7 @@ progress_bar_new(struct particle *common, const char *tag, int width,
     struct private *priv = calloc(1, sizeof(*priv));
     priv->tag = strdup(tag);
     priv->width = width;
+    priv->vertical = vertical;
     priv->start_marker = start_marker;
     priv->end_marker = end_marker;
     priv->fill = fill;
@@ -301,6 +320,7 @@ from_conf(const struct yml_node *node, struct particle *common)
     const struct yml_node *fill = yml_get_value(node, "fill");
     const struct yml_node *empty = yml_get_value(node, "empty");
     const struct yml_node *indicator = yml_get_value(node, "indicator");
+    const struct yml_node *_vertical = yml_get_value(node, "vertical");
 
     struct conf_inherit inherited = {
         .font = common->font,
@@ -312,6 +332,7 @@ from_conf(const struct yml_node *node, struct particle *common)
         common,
         yml_value_as_string(tag),
         yml_value_as_int(length),
+        _vertical == NULL ? false : yml_value_as_bool(_vertical),
         conf_to_particle(start, inherited),
         conf_to_particle(end, inherited),
         conf_to_particle(fill, inherited),
