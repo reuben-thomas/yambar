@@ -289,29 +289,28 @@ expose(const struct bar *_bar)
 
     int top_height, center_height, bottom_height;
     calculate_heights(bar, &top_height, &center_height, &bottom_height);
-    LOG_INFO("Widths: %d %d %d", top_height, center_height, bottom_height);
 
     bool virt = is_vertical(_bar);
 
-    int y = bar->border.top_width + bar->border.top_margin;
+    int y = bar->border.top_width + bar->top_margin;
     int x = bar->border.left_width + bar->left_margin;
 
     bar_expose_section(&bar->left, bar, pix, x, y, virt);
     
     if (virt)
-        y = bar->height / 2 - center_height / 2 - bar->top_spacing;
+        y = (bar->height_with_border - center_height) / 2;
     else    
-        x = bar->width / 2 - center_width / 2 - bar->left_spacing;
+        x = (bar->width_with_border - center_width) / 2;
     bar_expose_section(&bar->center, bar, pix, x, y, virt);
 
     if(virt)
-        y = bar->height - (
+        y = bar->height_with_border - (
             bottom_height +
             bar->top_spacing +
             bar->bottom_margin +
             bar->border.bottom_width);
     else
-        x = bar->width - (
+        x = bar->width_with_border - (
             right_width +
             bar->left_spacing +
             bar->right_margin +

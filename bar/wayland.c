@@ -1048,8 +1048,8 @@ update_size(struct wayland_backend *backend)
     // I need to read more to understand how bar->width and bar->height are used
     zwlr_layer_surface_v1_set_size(
         backend->layer_surface,
-        bar->width_with_border / scale,
-        bar->height_with_border / scale
+        (bar->width_with_border % scale + bar->width_with_border) / scale,
+        (bar->height_with_border % scale + bar->height_with_border) / scale
     );
 
     /* Trigger a 'configure' event, after which we'll have the width */

@@ -71,7 +71,7 @@ begin_expose(struct exposable *exposable)
             exposable->width += e->kern_x[i] + e->glyphs[i]->advance.x;
         }
     }
-    LOG_INFO("String height: %d", exposable->height);
+
     return exposable->width;
 }
 
@@ -107,9 +107,7 @@ expose(const struct exposable *exposable, pixman_image_t *pix, int x, int y, int
      * font family.
      */
      // TODO: FIX THIS
-    const double baseline = (double)y +
-        (double)(exposable->height + font->ascent + font->descent) / 2.0 -
-        (font->descent > 0 ? font->descent : 0);
+    const double baseline = (double)y + font->ascent;
 
     x += exposable->particle->left_margin;
 
