@@ -41,7 +41,7 @@ accum_widths(
 {
     for (size_t i = 0; i < s->count; i++) {
         struct exposable *e = s->exps[i];
-        if (e->height > 0)
+        if (e->width > 0)
             *out = act(*out, b->left_spacing + e->width + b->right_spacing);
     }
 }
@@ -62,7 +62,7 @@ accum_heights(const struct section *s, const struct private *b,
         if (e->height > 0)
             *out = act(*out, b->top_spacing + e->height + b->bottom_spacing);
     }
-    }
+}
 
 
 /* Add action */
@@ -87,10 +87,12 @@ larger(int a, int b)
 static void
 calculate_widths(const struct private *b, int *left, int *center, int *right)
 {
-    *left = *center = *right = 0;
-    accum_widths(&(b->left), b, left, &add);
-    accum_widths(&(b->center), b, center, &add);
-    accum_widths(&(b->right), b, right, &add);
+    *left = 0;
+    *center = 0;
+    *right = 0;
+    accum_widths(&b->left, b, left, &add);
+    accum_widths(&b->center, b, center, &add);
+    accum_widths(&b->right, b, right, &add);
 
     /* No spacing on the edges (that's what the margins are for) */
     if (*left > 0)
@@ -100,12 +102,13 @@ calculate_widths(const struct private *b, int *left, int *center, int *right)
     if (*right > 0)
         *right -= b->left_spacing + b->right_spacing;
 
+
     assert(*left >= 0);
     assert(*center >= 0);
     assert(*right >= 0);
 }
 
-#if 0
+
 /*
  * Calculate total height of left/center/right groups.
  * Note: begin_expose() must have been called
@@ -117,9 +120,9 @@ calculate_heights (const struct private *b, int *top, int *middle, int *bottom)
     *middle = 0;
     *bottom = 0;
 
-    accum_heights(&(b->left), b, top, &add);
-    accum_heights(&(b->center), b, middle, &add);
-    accum_heights(&(b->right), b, bottom, &add);
+    accum_heights(&b->left, b, top, &add);
+    accum_heights(&b->center, b, middle, &add);
+    accum_heights(&b->right, b, bottom, &add);
 
     /* No spacing on the edges (that's what the margins are for) */
     if (*top > 0)
@@ -133,7 +136,7 @@ calculate_heights (const struct private *b, int *top, int *middle, int *bottom)
     assert(*middle >= 0);
     assert(*bottom >= 0);
 }
-#endif
+
 /*
  * Calculate the minimum width the bar needs to be to show all particles.
  * This assumes the bar is at the left or right of screen.
@@ -144,9 +147,9 @@ min_bar_width (const struct private *b)
 {
     int min = 0;
 
-    accum_widths(&(b->left), b, &min, &larger);
-    accum_widths(&(b->center), b, &min, &larger);
-    accum_widths(&(b->right), b, &min, &larger);
+    accum_widths(&b->left, b, &min, &larger);
+    accum_widths(&b->center, b, &min, &larger);
+    accum_widths(&b->right, b, &min, &larger);
 
     return min;
 }
@@ -159,12 +162,11 @@ min_bar_width (const struct private *b)
 static int
 min_bar_height (const struct private *b)
 {
-    LOG_INFO("Mining");
     int min = 0;
 
-    accum_heights(&(b->left), b, &min, &larger);
-    accum_heights(&(b->center), b, &min, &larger);
-    accum_heights(&(b->right), b, &min, &larger);
+    accum_heights(&b->left, b, &min, &larger);
+    accum_heights(&b->center, b, &min, &larger);
+    accum_heights(&b->right, b, &min, &larger);
 
     return min;
 }
@@ -186,21 +188,17 @@ begin_expose_mods(const struct section *s)
 static void
 bar_recalc_size(struct private *bar)
 {
-    LOG_DBG("Bar width auto? %s",
-        bar->width < 0 ? "yes" : "no");
-    LOG_DBG("Bar height auto? %s",
-        bar->height < 0 ? "yes" : "no");
-
-    begin_expose_mods(&(bar->left));
-    begin_expose_mods(&(bar->center));
-    begin_expose_mods(&(bar->right));
+    begin_expose_mods(&bar->left);
+    begin_expose_mods(&bar->center);
+    begin_expose_mods(&bar->right);
 
     if (bar->height < 0){
         if ((bar->location & (BAR_TOP | BAR_BOTTOM)) == bar->location)
             bar->height_with_border =
-                min_bar_height(bar) + bar->border.top_width + bar->border.bottom_width;
+                min_bar_height(bar) + bar->border.top_width + bar->border.bottom_width + bar->top_margin + bar->bottom_margin;
         else
             bar->height_with_border = 0;
+        LOG_INFO("auto height: %d", bar->height_with_border);
     } else
         bar->height_with_border =
             bar->height + bar->border.top_width + bar->border.bottom_width;
@@ -208,17 +206,35 @@ bar_recalc_size(struct private *bar)
     if (bar->width < 0){
         if ((bar->location & (BAR_LEFT | BAR_RIGHT)) == bar->location)
             bar->width_with_border =
-                min_bar_width(bar) + bar->border.left_width + bar->border.right_width;
+                min_bar_width(bar) + bar->border.left_width + bar->border.right_width + bar->left_margin + bar->right_margin;
         else
             bar->width_with_border = 0;
+        LOG_INFO("auto width: %d", bar->width_with_border);
     }else
         bar->width_with_border =
             bar->width + bar->border.top_width + bar->border.bottom_width;
-    
-    LOG_DBG("Bar width calculated size %d",
-        bar->width);
-    LOG_DBG("Bar height calculated size %d",
-        bar->height);
+}
+
+static bool
+is_vertical (const struct bar *_bar)
+{
+    const struct private *bar = _bar->private;
+    return bar->location == BAR_LEFT || bar->location == BAR_RIGHT;
+}
+
+static void
+bar_expose_section (
+    const struct section *s, const struct private *b,
+    pixman_image_t *pix, int x, int y, bool vertical)
+{
+    for (size_t i = 0; i < s->count; i++) {
+        const struct exposable *e = s->exps[i];
+        e->expose(e, pix, x, y, b->height);
+        if (vertical && e->height > 0)
+            y += b->top_spacing + e->height + b->bottom_spacing;
+        else if (!vertical && e->width > 0)
+            x += b->left_spacing + e->width + b->right_spacing;
+    }
 }
 
 static void
@@ -253,52 +269,56 @@ expose(const struct bar *_bar)
              bar->width_with_border - bar->border.left_width - bar->border.right_width,
              bar->border.bottom_width},
         });
-
-    int left_width, center_width, right_width;
-    calculate_widths(bar, &left_width, &center_width, &right_width);
-# if 0
-    int y = bar->border.top_width;
-    int x = bar->border.left_width + bar->left_margin - bar->left_spacing;
+/**
     pixman_region32_t clip;
     pixman_region32_init_rect(
         &clip,
         bar->border.left_width + bar->left_margin,
-        bar->border.top_width,
-        (bar->width -
+        bar->border.top_width + bar->border.top_margin,
+        (bar->width_with_border -
          bar->left_margin - bar->right_margin -
          bar->border.left_width - bar->border.right_width),
-        bar->height);
+        (bar->height_with_border -
+         bar->top_margin - bar->bottom_margin -
+         bar->border.top_width - bar->border.bottom_width));
     pixman_image_set_clip_region32(pix, &clip);
-    pixman_region32_fini(&clip);
+    pixman_region32_fini(&clip);*/
 
-    for (size_t i = 0; i < bar->left.count; i++) {
-        const struct exposable *e = bar->left.exps[i];
-        e->expose(e, pix, x + bar->left_spacing, y, bar->height);
-        if (e->width > 0)
-            x += bar->left_spacing + e->width + bar->right_spacing;
-    }
+    int left_width, center_width, right_width;
+    calculate_widths(bar, &left_width, &center_width, &right_width);
 
-    x = bar->width / 2 - center_width / 2 - bar->left_spacing;
-    for (size_t i = 0; i < bar->center.count; i++) {
-        const struct exposable *e = bar->center.exps[i];
-        e->expose(e, pix, x + bar->left_spacing, y, bar->height);
-        if (e->width > 0)
-            x += bar->left_spacing + e->width + bar->right_spacing;
-    }
+    int top_height, center_height, bottom_height;
+    calculate_heights(bar, &top_height, &center_height, &bottom_height);
+    LOG_INFO("Widths: %d %d %d", top_height, center_height, bottom_height);
 
-    x = bar->width - (
-        right_width +
-        bar->left_spacing +
-        bar->right_margin +
-        bar->border.right_width);
+    bool virt = is_vertical(_bar);
 
-    for (size_t i = 0; i < bar->right.count; i++) {
-        const struct exposable *e = bar->right.exps[i];
-        e->expose(e, pix, x + bar->left_spacing, y, bar->height);
-        if (e->width > 0)
-            x += bar->left_spacing + e->width + bar->right_spacing;
-    }
-#endif
+    int y = bar->border.top_width + bar->border.top_margin;
+    int x = bar->border.left_width + bar->left_margin;
+
+    bar_expose_section(&bar->left, bar, pix, x, y, virt);
+    
+    if (virt)
+        y = bar->height / 2 - center_height / 2 - bar->top_spacing;
+    else    
+        x = bar->width / 2 - center_width / 2 - bar->left_spacing;
+    bar_expose_section(&bar->center, bar, pix, x, y, virt);
+
+    if(virt)
+        y = bar->height - (
+            bottom_height +
+            bar->top_spacing +
+            bar->bottom_margin +
+            bar->border.bottom_width);
+    else
+        x = bar->width - (
+            right_width +
+            bar->left_spacing +
+            bar->right_margin +
+            bar->border.right_width);
+
+    bar_expose_section(&bar->right, bar, pix, x, y, virt);
+
     bar->backend.iface->commit(_bar);
 }
 
@@ -643,6 +663,7 @@ bar_new(const struct bar_config *config)
     bar->destroy = &destroy;
     bar->refresh = &refresh;
     bar->set_cursor = &set_cursor;
+    bar->is_vertical = &is_vertical;
     bar->output_name = &output_name;
 
     for (size_t i = 0; i < priv->left.count; i++)

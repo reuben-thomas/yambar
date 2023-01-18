@@ -8,12 +8,15 @@
 #include "../particle.h"
 
 struct private {
-    int left_spacing;
-    int right_spacing;
+    int pre_spacing;
+    int post_spacing;
+
+    bool vertical;
 
     struct exposable **exposables;
     size_t count;
     int *widths;
+    int *heights;
 };
 
 static void
@@ -27,6 +30,7 @@ dynlist_destroy(struct exposable *exposable)
 
     free(e->exposables);
     free(e->widths);
+    free(e->heights);
     free(e);
     free(exposable);
 }
@@ -35,26 +39,41 @@ static int
 dynlist_begin_expose(struct exposable *exposable)
 {
     const struct private *e = exposable->private;
-
+    
     exposable->width = 0;
+    exposable->height = 0;
     bool have_at_least_one = false;
 
     for (size_t i = 0; i < e->count; i++) {
         struct exposable *ee = e->exposables[i];
-        e->widths[i] = ee->begin_expose(ee);
+        ee->begin_expose(ee);
+        e->widths[i] = ee->width;
+        e->heights[i] = ee->height;
 
-        assert(e->widths[i] >= 0);
+        assert(e->widths[i] >= 0 && e->heights[i] >= 0);
 
-        if (e->widths[i] > 0) {
-            exposable->width += e->left_spacing + e->widths[i] + e->right_spacing;
+        if (e->widths[i] > 0 && e->heights[i] > 0) {
+            if (e->vertical) {
+                exposable->height += e->pre_spacing + e->heights[i] + e->post_spacing;
+                if (e->widths[i] > exposable->width)
+                    exposable->width = e->widths[i];
+            } else {
+                exposable->width += e->pre_spacing + e->widths[i] + e->post_spacing;
+                if (e->heights[i] > exposable->height)
+                    exposable->height = e->heights[i];
+            }
             have_at_least_one = true;
         }
     }
 
-    if (have_at_least_one)
-        exposable->width -= e->left_spacing + e->right_spacing;
+    if (have_at_least_one) {
+        if (e->vertical)
+            exposable->height -= e->pre_spacing + e->post_spacing;
+        else
+            exposable->width -= e->pre_spacing + e->post_spacing;
+    }
     else
-        assert(exposable->width == 0);
+        assert(exposable->width == 0 || exposable->height == 0);
     return exposable->width;
 }
 
@@ -63,15 +82,25 @@ dynlist_expose(const struct exposable *exposable, pixman_image_t *pix, int x, in
 {
     const struct private *e = exposable->private;
 
-    int left_spacing = e->left_spacing;
-    int right_spacing = e->right_spacing;
+    int pre_spacing = e->pre_spacing;
+    int post_spacing = e->post_spacing;
 
-    x -= left_spacing;
+    if (e->vertical) {
+        y -= pre_spacing;
 
-    for (size_t i = 0; i < e->count; i++) {
-        const struct exposable *ee = e->exposables[i];
-        ee->expose(ee, pix, x + left_spacing, y, height);
-        x += left_spacing + e->widths[i] + right_spacing;
+        for (size_t i = 0; i < e->count; i++) {
+            const struct exposable *ee = e->exposables[i];
+            ee->expose(ee, pix, x, y + pre_spacing, height);
+            y += pre_spacing + e->heights[i] + post_spacing;
+        }
+    } else {
+        x -= pre_spacing;
+
+        for (size_t i = 0; i < e->count; i++) {
+            const struct exposable *ee = e->exposables[i];
+            ee->expose(ee, pix, x + pre_spacing, y, height);
+            x += pre_spacing + e->widths[i] + post_spacing;
+        }
     }
 }
 
@@ -96,7 +125,7 @@ on_mouse(struct exposable *exposable, struct bar *bar,
             return;
         }
 
-        px += e->left_spacing + e->exposables[i]->width + e->right_spacing;
+        px += e->pre_spacing + e->exposables[i]->width + e->post_spacing;
     }
 
     LOG_DBG("on_mouse missed all sub-particles");
@@ -104,15 +133,17 @@ on_mouse(struct exposable *exposable, struct bar *bar,
 }
 
 struct exposable *
-dynlist_exposable_new(struct exposable **exposables, size_t count,
-                      int left_spacing, int right_spacing)
+dynlist_exposable_new(struct exposable **exposables, size_t count, bool vertical,
+                      int pre_spacing, int post_spacing)
 {
     struct private *e = calloc(1, sizeof(*e));
     e->count = count;
+    e->vertical = vertical;
     e->exposables = malloc(count * sizeof(e->exposables[0]));
     e->widths = calloc(count, sizeof(e->widths[0]));
-    e->left_spacing = left_spacing;
-    e->right_spacing = right_spacing;
+    e->heights = calloc(count, sizeof(e->heights[0]));
+    e->pre_spacing = pre_spacing;
+    e->post_spacing = post_spacing;
 
     for (size_t i = 0; i < count; i++)
         e->exposables[i] = exposables[i];

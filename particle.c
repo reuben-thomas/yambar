@@ -64,11 +64,11 @@ exposable_default_destroy(struct exposable *exposable)
 
 void
 exposable_render_deco(const struct exposable *exposable,
-                      pixman_image_t *pix, int x, int y, int height)
+                      pixman_image_t *pix, int x, int y)
 {
     const struct deco *deco = exposable->particle->deco;
     if (deco != NULL)
-        deco->expose(deco, pix, x, y, exposable->width, height);
+        deco->expose(deco, pix, x, y, exposable->width, exposable->height);
 
 }
 

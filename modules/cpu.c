@@ -207,7 +207,7 @@ content(struct module *mod)
     }
 
     mtx_unlock(&mod->lock);
-    return dynlist_exposable_new(parts, list_count, 0, 0);
+    return dynlist_exposable_new(parts, list_count, mod->bar->is_vertical(mod->bar), 0, 0);
 }
 
 static int

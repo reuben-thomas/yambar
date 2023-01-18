@@ -10,13 +10,15 @@ begin_expose(struct exposable *exposable)
 {
     exposable->width = exposable->particle->left_margin +
         exposable->particle->right_margin;
+    exposable->height = exposable->particle->top_margin +
+        exposable->particle->bottom_margin;
     return exposable->width;
 }
 
 static void
 expose(const struct exposable *exposable, pixman_image_t *pix, int x, int y, int height)
 {
-    exposable_render_deco(exposable, pix, x, y, height);
+    exposable_render_deco(exposable, pix, x, y);
 }
 
 static struct exposable *

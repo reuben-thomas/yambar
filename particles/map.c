@@ -2,6 +2,7 @@
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
+#include <stdbool.h>
 
 #define LOG_MODULE "map"
 #include "../log.h"
@@ -184,13 +185,20 @@ begin_expose(struct exposable *exposable)
 {
     struct eprivate *e = exposable->private;
 
-    int width = e->exposable->begin_expose(e->exposable);
-    assert(width >= 0);
+    e->exposable->begin_expose(e->exposable);
+
+    int width = e->exposable->width;
+    int height = e->exposable->height;
+    assert(width >= 0 && height >= 0);
 
     if (width > 0)
         width += exposable->particle->left_margin + exposable->particle->right_margin;
+    if (height > 0)
+        height += exposable->particle->top_margin + exposable->particle->bottom_margin;
 
     exposable->width = width;
+    exposable->height = height;
+    
     return exposable->width;
 }
 
@@ -199,7 +207,7 @@ expose(const struct exposable *exposable, pixman_image_t *pix, int x, int y, int
 {
     struct eprivate *e = exposable->private;
 
-    exposable_render_deco(exposable, pix, x, y, height);
+    exposable_render_deco(exposable, pix, x, y);
     e->exposable->expose(
         e->exposable, pix, x + exposable->particle->left_margin, y, height);
 }
@@ -254,7 +262,7 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
     else if (p->default_particle != NULL)
         e->exposable = p->default_particle->instantiate(p->default_particle, tags);
     else
-        e->exposable = dynlist_exposable_new(NULL, 0, 0, 0);
+        e->exposable = dynlist_exposable_new(NULL, 0, false, 0, 0);
 
     assert(e->exposable != NULL);
 

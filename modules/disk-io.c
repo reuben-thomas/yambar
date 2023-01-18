@@ -259,7 +259,7 @@ content(struct module *mod)
     tag_set_destroy(&tags);
     mtx_unlock(&mod->lock);
 
-    return dynlist_exposable_new(tag_parts, p->devices.length + 1, 0, 0);
+    return dynlist_exposable_new(tag_parts, p->devices.length + 1, mod->bar->is_vertical(mod->bar), 0, 0);
 }
 
 static int

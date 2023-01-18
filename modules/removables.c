@@ -158,7 +158,7 @@ content(struct module *mod)
 
     tll_free(partitions);
     return dynlist_exposable_new(
-        exposables, idx, m->left_spacing, m->right_spacing);
+        exposables, idx, mod->bar->is_vertical(mod->bar), m->left_spacing, m->right_spacing);
 }
 
 static void

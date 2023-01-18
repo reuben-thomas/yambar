@@ -856,7 +856,7 @@ content(struct module *module)
     struct private *private = module->private;
 
     if (private->data == NULL)
-        return dynlist_exposable_new(NULL, 0, 0, 0);
+        return dynlist_exposable_new(NULL, 0, module->bar->is_vertical(module->bar), 0, 0);
 
     mtx_lock(&module->lock);
 
@@ -915,7 +915,7 @@ content(struct module *module)
 
     mtx_unlock(&module->lock);
 
-    return dynlist_exposable_new(exposables, exposables_length, 0, 0);
+    return dynlist_exposable_new(exposables, exposables_length, module->bar->is_vertical(module->bar), 0, 0);
 }
 
 static int

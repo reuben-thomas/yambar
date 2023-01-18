@@ -1062,8 +1062,8 @@ update_size(struct wayland_backend *backend)
     }
 
     LOG_INFO("backend size: %dx%d", backend->width, backend->height);
-    bar->width_with_border = backend->width;
-    bar->height_with_border = backend->height;
+    bar->width = backend->width;
+    bar->height = backend->height;
 
     if (bar->location & (BAR_TOP | BAR_BOTTOM)) {
         zwlr_layer_surface_v1_set_exclusive_zone(
@@ -1092,8 +1092,8 @@ update_size(struct wayland_backend *backend)
     wl_surface_commit(backend->surface);
     // TODO: Figure out why not setting width & height
     // make the bar fail to appear.  Don't want to have to do this
-    bar->width = backend->width - (bar->border.left_width + bar->border.right_width);
-    bar->height = backend->height - (bar->border.top_width + bar->border.bottom_width);
+    bar->width_with_border = backend->width;
+    bar->height_with_border = backend->height;
 
     /* Reload buffers */
     if (backend->next_buffer != NULL)
@@ -1466,7 +1466,7 @@ static void
 refresh(const struct bar *_bar)
 {
     const struct private *bar = _bar->private;
-    const struct wayland_backend *backend = bar->backend.data;
+    struct wayland_backend *backend = bar->backend.data;
 
     if (write(backend->pipe_fds[1], &(uint8_t){1}, sizeof(uint8_t))
         != sizeof(uint8_t))

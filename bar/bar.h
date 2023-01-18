@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdbool.h>
+
 #include "../color.h"
 #include "../font-shaping.h"
 #include "../module.h"
@@ -13,6 +15,8 @@ struct bar {
 
     void (*refresh)(const struct bar *bar);
     void (*set_cursor)(struct bar *bar, const char *cursor);
+
+    bool (*is_vertical)(const struct bar *bar);
 
     const char *(*output_name)(const struct bar *bar);
 };

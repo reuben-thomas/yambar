@@ -149,7 +149,7 @@ content(struct module *mod)
     }
 
     mtx_unlock(&mod->lock);
-    return dynlist_exposable_new(toplevels, show_count, 0, 0);
+    return dynlist_exposable_new(toplevels, show_count, mod->bar->is_vertical(mod->bar), 0, 0);
 }
 
 static bool

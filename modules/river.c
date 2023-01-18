@@ -178,7 +178,7 @@ content(struct module *mod)
     }
 
     mtx_unlock(&m->mod->lock);
-    return dynlist_exposable_new(tag_parts, 32 + seat_count, 0, 0);
+    return dynlist_exposable_new(tag_parts, 32 + seat_count, mod->bar->is_vertical(mod->bar), 0, 0);
 }
 
 static bool

@@ -120,7 +120,7 @@ content(struct module *module)
     tag_set_destroy(&tags);
 
     mtx_unlock(&module->lock);
-    return dynlist_exposable_new(exposable, i, 0, 0);
+    return dynlist_exposable_new(exposable, module->bar->is_vertical(module->bar), i, 0, 0);
 }
 
 static struct dwl_tag *

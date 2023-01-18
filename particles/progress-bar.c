@@ -87,7 +87,7 @@ expose(const struct exposable *exposable, pixman_image_t *pix, int x, int y, int
 {
     const struct eprivate *e = exposable->private;
 
-    exposable_render_deco(exposable, pix, x, y, height);
+    exposable_render_deco(exposable, pix, x, y);
 
     x += exposable->particle->left_margin;
     for (size_t i = 0; i < e->count; i++) {

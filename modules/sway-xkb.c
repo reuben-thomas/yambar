@@ -90,7 +90,7 @@ content(struct module *mod)
 
     mtx_unlock(&mod->lock);
     return dynlist_exposable_new(
-        particles, m->num_existing_inputs, m->left_spacing, m->right_spacing);
+        particles, m->num_existing_inputs, mod->bar->is_vertical(mod->bar), m->left_spacing, m->right_spacing);
 }
 
 static bool

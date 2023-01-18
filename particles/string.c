@@ -15,6 +15,7 @@ struct text_run_cache {
     uint64_t hash;
     struct fcft_text_run *run;
     int width;
+    int height;
     bool in_use;
 };
 
@@ -31,6 +32,7 @@ struct eprivate {
     const struct fcft_glyph **glyphs;
     const struct fcft_glyph **allocated_glyphs;
     long *kern_x;
+    long *kern_y;
     int num_glyphs;
 };
 
@@ -41,6 +43,7 @@ exposable_destroy(struct exposable *exposable)
 
     free(e->allocated_glyphs);
     free(e->kern_x);
+    free(e->kern_y);
     free(e);
     exposable_default_destroy(exposable);
 }
@@ -50,26 +53,32 @@ begin_expose(struct exposable *exposable)
 {
     struct eprivate *e = exposable->private;
     struct private *p = exposable->particle->private;
+    const struct fcft_font *font = exposable->particle->font;
 
     exposable->width =
         exposable->particle->left_margin +
         exposable->particle->right_margin;
-
+    exposable->height =
+        exposable->particle->top_margin +
+        exposable->particle->bottom_margin;
+    exposable->height += font->ascent + font->descent;
+    
     if (e->cache_idx >= 0) {
         exposable->width += p->cache[e->cache_idx].width;
     } else {
         /* Calculate the size we need to render the glyphs */
-        for (int i = 0; i < e->num_glyphs; i++)
+        for (int i = 0; i < e->num_glyphs; i++) {
             exposable->width += e->kern_x[i] + e->glyphs[i]->advance.x;
+        }
     }
-
+    LOG_INFO("String height: %d", exposable->height);
     return exposable->width;
 }
 
 static void
 expose(const struct exposable *exposable, pixman_image_t *pix, int x, int y, int height)
 {
-    exposable_render_deco(exposable, pix, x, y, height);
+    exposable_render_deco(exposable, pix, x, y);
 
     const struct eprivate *e = exposable->private;
     const struct fcft_font *font = exposable->particle->font;
@@ -97,8 +106,9 @@ expose(const struct exposable *exposable, pixman_image_t *pix, int x, int y, int
      * any real facts, but works very well with e.g. the "Awesome 6"
      * font family.
      */
+     // TODO: FIX THIS
     const double baseline = (double)y +
-        (double)(height + font->ascent + font->descent) / 2.0 -
+        (double)(exposable->height + font->ascent + font->descent) / 2.0 -
         (font->descent > 0 ? font->descent : 0);
 
     x += exposable->particle->left_margin;
@@ -109,6 +119,7 @@ expose(const struct exposable *exposable, pixman_image_t *pix, int x, int y, int
         assert(glyph != NULL);
 
         x += e->kern_x[i];
+        y += e->kern_y[i];
 
         if (pixman_image_get_format(glyph->pix) == PIXMAN_a8r8g8b8) {
             /* Glyph surface is a pre-rendered image (typically a color emoji...) */
@@ -156,6 +167,7 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
     e->glyphs = e->allocated_glyphs = NULL;
     e->num_glyphs = 0;
     e->kern_x = NULL;
+    e->kern_y = NULL;
     e->cache_idx = -1;
 
     uint64_t hash = sdbm_hash(text);
@@ -170,6 +182,7 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
             e->glyphs = p->cache[i].run->glyphs;
             e->num_glyphs = p->cache[i].run->count;
             e->kern_x = calloc(p->cache[i].run->count, sizeof(e->kern_x[0]));
+            e->kern_y = calloc(p->cache[i].run->count, sizeof(e->kern_y[0]));
             goto done;
         }
     }
@@ -197,6 +210,7 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
     }
 
     e->kern_x = calloc(chars, sizeof(e->kern_x[0]));
+    e->kern_y = calloc(chars, sizeof(e->kern_y[0]));
 
     if (particle->font_shaping == FONT_SHAPE_FULL &&
         fcft_capabilities() & FCFT_CAPABILITY_TEXT_RUN_SHAPING)
@@ -205,9 +219,11 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
             font, chars, wtext, FCFT_SUBPIXEL_NONE);
 
         if (run != NULL) {
-            int w = 0;
-            for (size_t i = 0; i < run->count; i++)
+            int w = 0, h = 0;
+            for (size_t i = 0; i < run->count; i++) {
                 w += run->glyphs[i]->advance.x;
+                h += run->glyphs[i]->advance.y;
+            }
 
             ssize_t cache_idx = -1;
             for (size_t i = 0; i < p->cache_size; i++) {
@@ -232,6 +248,7 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
             p->cache[cache_idx].hash = hash;
             p->cache[cache_idx].run = run;
             p->cache[cache_idx].width = w;
+            p->cache[cache_idx].height = h;
             p->cache[cache_idx].in_use = true;
 
             e->cache_idx = cache_idx;
@@ -256,7 +273,7 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
             if (i == 0)
                 continue;
 
-            fcft_kerning(font, wtext[i - 1], wtext[i], &e->kern_x[i], NULL);
+            fcft_kerning(font, wtext[i - 1], wtext[i], &e->kern_x[i], &e->kern_y[i]);
         }
 
         e->glyphs = e->allocated_glyphs;

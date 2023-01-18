@@ -32,6 +32,7 @@ struct particle {
     void *private;
 
     int left_margin, right_margin;
+    int top_margin, bottom_margin;
 
     bool have_on_click_template;
     char *on_click_templates[MOUSE_BTN_COUNT];
@@ -58,6 +59,7 @@ struct exposable {
 
     void (*destroy)(struct exposable *exposable);
     int (*begin_expose)(struct exposable *exposable);
+    // TODO: remove 'height' from expose now that we have the internal variable 
     void (*expose)(const struct exposable *exposable, pixman_image_t *pix,
                    int x, int y, int height);
 
@@ -76,7 +78,7 @@ struct exposable *exposable_common_new(
     const struct particle *particle, const struct tag_set *tags);
 void exposable_default_destroy(struct exposable *exposable);
 void exposable_render_deco(
-    const struct exposable *exposable, pixman_image_t *pix, int x, int y, int height);
+    const struct exposable *exposable, pixman_image_t *pix, int x, int y);
 
 void exposable_default_on_mouse(
     struct exposable *exposable, struct bar *bar,

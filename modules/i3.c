@@ -904,7 +904,7 @@ content(struct module *mod)
 
     mtx_unlock(&mod->lock);
     return dynlist_exposable_new(
-        particles, particle_count, m->left_spacing, m->right_spacing);
+        particles, particle_count, mod->bar->is_vertical(mod->bar), m->left_spacing, m->right_spacing);
 }
 
 /* Maps workspace name to a content particle. */
