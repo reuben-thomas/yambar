@@ -273,13 +273,11 @@ expose(const struct bar *_bar)
     pixman_region32_t clip;
     pixman_region32_init_rect(
         &clip,
-        bar->border.left_width + bar->left_margin,
-        bar->border.top_width + bar->border.top_margin,
+        bar->border.left_width,
+        bar->border.top_width,
         (bar->width_with_border -
-         bar->left_margin - bar->right_margin -
          bar->border.left_width - bar->border.right_width),
         (bar->height_with_border -
-         bar->top_margin - bar->bottom_margin -
          bar->border.top_width - bar->border.bottom_width));
     pixman_image_set_clip_region32(pix, &clip);
     pixman_region32_fini(&clip);
