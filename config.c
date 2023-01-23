@@ -172,7 +172,7 @@ particle_simple_list_from_config(const struct yml_node *node,
     static struct particle *(*particle_list_new)(
         struct particle *common,
         struct particle *particles[], size_t count,
-        int left_spacing, int right_spacing) = NULL;
+        bool vertical, int left_spacing, int right_spacing) = NULL;
 
     if (particle_list_new == NULL) {
         const struct plugin *plug = plugin_load("list", PLUGIN_PARTICLE);
@@ -185,7 +185,7 @@ particle_simple_list_from_config(const struct yml_node *node,
         0, 0, NULL, fcft_clone(inherited.font), inherited.font_shaping,
         inherited.foreground, NULL);
 
-    return particle_list_new(common, parts, count, 0, 2);
+    return particle_list_new(common, parts, count, false, 0, 2);
 }
 
 struct particle *

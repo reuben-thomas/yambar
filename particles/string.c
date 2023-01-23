@@ -15,7 +15,6 @@ struct text_run_cache {
     uint64_t hash;
     struct fcft_text_run *run;
     int width;
-    int height;
     bool in_use;
 };
 
@@ -217,10 +216,9 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
             font, chars, wtext, FCFT_SUBPIXEL_NONE);
 
         if (run != NULL) {
-            int w = 0, h = 0;
+            int w = 0;
             for (size_t i = 0; i < run->count; i++) {
                 w += run->glyphs[i]->advance.x;
-                h += run->glyphs[i]->advance.y;
             }
 
             ssize_t cache_idx = -1;
@@ -246,7 +244,6 @@ instantiate(const struct particle *particle, const struct tag_set *tags)
             p->cache[cache_idx].hash = hash;
             p->cache[cache_idx].run = run;
             p->cache[cache_idx].width = w;
-            p->cache[cache_idx].height = h;
             p->cache[cache_idx].in_use = true;
 
             e->cache_idx = cache_idx;

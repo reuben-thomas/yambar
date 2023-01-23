@@ -181,7 +181,7 @@ begin_expose_mods(const struct section *s)
         if (e != NULL)
             e->destroy(e);
         s->exps[i] = module_begin_expose(m);
-        assert(s->exps[i]->width >= 0);
+        assert(s->exps[i]->width >= 0 && s->exps[i]->height >= 0);
     }
 }
 
@@ -269,7 +269,7 @@ expose(const struct bar *_bar)
              bar->width_with_border - bar->border.left_width - bar->border.right_width,
              bar->border.bottom_width},
         });
-/**
+
     pixman_region32_t clip;
     pixman_region32_init_rect(
         &clip,
@@ -282,7 +282,7 @@ expose(const struct bar *_bar)
          bar->top_margin - bar->bottom_margin -
          bar->border.top_width - bar->border.bottom_width));
     pixman_image_set_clip_region32(pix, &clip);
-    pixman_region32_fini(&clip);*/
+    pixman_region32_fini(&clip);
 
     int left_width, center_width, right_width;
     calculate_widths(bar, &left_width, &center_width, &right_width);
@@ -325,8 +325,7 @@ expose(const struct bar *_bar)
 static void
 refresh(const struct bar *bar)
 {
-    struct private *b = bar->private;
-    bar_recalc_size(b);
+    const struct private *b = bar->private;
     b->backend.iface->refresh(bar);
 }
 

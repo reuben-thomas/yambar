@@ -1043,27 +1043,11 @@ update_size(struct wayland_backend *backend)
         return true;
 
     backend->scale = scale;
-
-    // TODO: Somehow set up width and height properly
-    // I need to read more to understand how bar->width and bar->height are used
-    zwlr_layer_surface_v1_set_size(
-        backend->layer_surface,
-        (bar->width_with_border % scale + bar->width_with_border) / scale,
-        (bar->height_with_border % scale + bar->height_with_border) / scale
-    );
-
-    /* Trigger a 'configure' event, after which we'll have the width */
-    wl_surface_commit(backend->surface);
-    wl_display_roundtrip(backend->display);
-
+    
     if (backend->width == -1 || backend->height == -1) {
         LOG_ERR("failed to get panel size");
         return false;
     }
-
-    LOG_INFO("backend size: %dx%d", backend->width, backend->height);
-    bar->width = backend->width;
-    bar->height = backend->height;
 
     if (bar->location & (BAR_TOP | BAR_BOTTOM)) {
         zwlr_layer_surface_v1_set_exclusive_zone(
@@ -1089,11 +1073,19 @@ update_size(struct wayland_backend *backend)
         bar->border.left_margin / scale
         );
     
+    zwlr_layer_surface_v1_set_size(
+        backend->layer_surface,
+        (bar->width_with_border % scale + bar->width_with_border) / scale,
+        (bar->height_with_border % scale + bar->height_with_border) / scale
+    );
+
+    /* Trigger a 'configure' event, after which we'll have the width */
     wl_surface_commit(backend->surface);
-    // TODO: Figure out why not setting width & height
-    // make the bar fail to appear.  Don't want to have to do this
+    wl_display_roundtrip(backend->display);
     bar->width_with_border = backend->width;
     bar->height_with_border = backend->height;
+
+    
 
     /* Reload buffers */
     if (backend->next_buffer != NULL)
