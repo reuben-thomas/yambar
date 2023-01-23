@@ -240,8 +240,12 @@ bar_expose_section (
 static void
 expose(const struct bar *_bar)
 {
-    const struct private *bar = _bar->private;
+    struct private *bar = _bar->private;
     pixman_image_t *pix = bar->pix;
+
+    begin_expose_mods(&bar->left);
+    begin_expose_mods(&bar->center);
+    begin_expose_mods(&bar->right);
 
     pixman_image_fill_rectangles(
         PIXMAN_OP_SRC, pix, &bar->background, 1,
