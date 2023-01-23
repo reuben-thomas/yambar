@@ -90,6 +90,7 @@ setup(struct bar *_bar)
 
     /* Find monitor coordinates and width/height */
     bool found_monitor = false;
+    int width = bar->width_with_border, height = bar->height_with_border;
     for (xcb_randr_monitor_info_iterator_t it =
              xcb_randr_get_monitors_monitors_iterator(monitors);
          it.rem > 0;
@@ -110,9 +111,25 @@ setup(struct bar *_bar)
 
         backend->x = mon->x;
         backend->y = mon->y;
-        bar->width = mon->width;
-        backend->y += bar->location == BAR_TOP ? 0
-            : screen->height_in_pixels - bar->height_with_border;
+        
+        if(bar->width_with_border == 0)
+            width = mon->width - (bar->border.left_margin + bar->border.right_margin);
+        if(bar->height_with_border == 0)
+            height = mon->height - (bar->border.top_margin + bar->border.bottom_margin);
+        
+        if (bar->location & (BAR_BOTTOM | BAR_TOP)) {
+            if (bar->location == BAR_BOTTOM)
+                backend->y += mon->height - (height + bar->border.bottom_margin);
+            else
+                backend->y += bar->border.top_margin;
+            backend->x += (mon->width / 2) - (width / 2);
+        } else {
+            if (bar->location == BAR_RIGHT)
+                backend->x += mon->width - (width + bar->border.right_margin);
+            else
+                backend->x += bar->border.left_margin;
+            backend->y += (mon->height / 2) - (height / 2);
+        }
 
         found_monitor = true;
 
@@ -127,6 +144,9 @@ setup(struct bar *_bar)
         free(name);
     }
     free(monitors);
+
+    bar->width_with_border = width;
+    bar->height_with_border = height;
 
     if (!found_monitor) {
         if (bar->monitor == NULL)
@@ -162,7 +182,7 @@ setup(struct bar *_bar)
     xcb_create_window(
         backend->conn,
         depth, backend->win, screen->root,
-        backend->x, backend->y, bar->width, bar->height_with_border,
+        backend->x, backend->y, bar->width_with_border, bar->height_with_border,
         0,
         XCB_WINDOW_CLASS_INPUT_OUTPUT, vis->visual_id,
         (XCB_CW_BACK_PIXEL |
@@ -211,36 +231,30 @@ setup(struct bar *_bar)
         backend->conn, backend->win, XCB_CONFIG_WINDOW_STACK_MODE,
         (const uint32_t []){XCB_STACK_MODE_ABOVE});
 
-    uint32_t top_strut, bottom_strut;
-    uint32_t top_pair[2], bottom_pair[2];
+    uint32_t top_strut, bottom_strut, left_strut, right_strut;
+    top_strut = bottom_strut = left_strut = right_strut = 0;
 
-    if (bar->location == BAR_TOP) {
+    if (bar->location == BAR_TOP)
         top_strut = bar->height_with_border;
-        top_pair[0] = backend->x;
-        top_pair[1] = backend->x + bar->width - 1;
-
-        bottom_strut = 0;
-        bottom_pair[0] = bottom_pair[1] = 0;
-    } else {
+    else if (bar->location == BAR_BOTTOM)
         bottom_strut = bar->height_with_border;
-        bottom_pair[0] = backend->x;
-        bottom_pair[1] = backend->x + bar->width - 1;
-
-        top_strut = 0;
-        top_pair[0] = top_pair[1] = 0;
-    }
+    else if (bar->location == BAR_LEFT)
+        left_strut = bar->width_with_border;
+    else
+        right_strut = bar->width_with_border;
 
     uint32_t strut[] = {
         /* left/right/top/bottom */
-        0, 0,
+        left_strut,
+        right_strut,
         top_strut,
         bottom_strut,
 
         /* start/end pairs for left/right/top/bottom */
-        0, 0,
-        0, 0,
-        top_pair[0], top_pair[1],
-        bottom_pair[0], bottom_pair[1],
+        backend->y, backend->y + bar->height_with_border,
+        backend->y, backend->y + bar->height_with_border,
+        backend->x, backend->x + bar->width_with_border,
+        backend->x, backend->x + bar->width_with_border,
     };
 
     xcb_change_property(
@@ -261,12 +275,12 @@ setup(struct bar *_bar)
                   (const uint32_t []){screen->white_pixel, 0});
 
     const uint32_t stride = stride_for_format_and_width(
-        PIXMAN_a8r8g8b8, bar->width);
+        PIXMAN_a8r8g8b8, bar->width_with_border);
 
     backend->client_pixmap_size = stride * bar->height_with_border;
     backend->client_pixmap = malloc(backend->client_pixmap_size);
     backend->pix = pixman_image_create_bits_no_clear(
-        PIXMAN_a8r8g8b8, bar->width, bar->height_with_border,
+        PIXMAN_a8r8g8b8, bar->width_with_border, bar->height_with_border,
         (uint32_t *)backend->client_pixmap, stride);
     bar->pix = backend->pix;
 
@@ -407,7 +421,7 @@ commit(const struct bar *_bar)
 
     xcb_put_image(
         backend->conn, XCB_IMAGE_FORMAT_Z_PIXMAP, backend->win, backend->gc,
-        bar->width, bar->height_with_border, 0, 0, 0,
+        bar->width_with_border, bar->height_with_border, 0, 0, 0,
         backend->depth, backend->client_pixmap_size, backend->client_pixmap);
     xcb_flush(backend->conn);
 }
