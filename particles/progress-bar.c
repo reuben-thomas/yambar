@@ -352,6 +352,7 @@ verify_conf(keychain_t *chain, const struct yml_node *node)
         {"fill", true, &conf_verify_particle},
         {"empty", true, &conf_verify_particle},
         {"indicator", true, &conf_verify_particle},
+        {"verticl", false, &conf_verify_bool},
         PARTICLE_COMMON_ATTRS,
     };
 

@@ -101,7 +101,7 @@ expose(const struct exposable *exposable, pixman_image_t *pix, int x, int y, int
         for (size_t i = 0; i < e->count; i++) {
             const struct exposable *ee = e->exposables[i];
             ee->expose(ee, pix, x, y + pre_spacing, height);
-            x += pre_spacing + e->heights[i] + post_spacing;
+            y += pre_spacing + e->heights[i] + post_spacing;
         }
     } else {
         x -= pre_spacing;
@@ -245,8 +245,9 @@ verify_conf(keychain_t *chain, const struct yml_node *node)
     static const struct attr_info attrs[] = {
         {"items", true, &conf_verify_particle_list_items},
         {"spacing", false, &conf_verify_unsigned},
-        {"left-spacing", false, &conf_verify_unsigned},
-        {"right-spacing", false, &conf_verify_unsigned},
+        {"pre-spacing", false, &conf_verify_unsigned},
+        {"post-spacing", false, &conf_verify_unsigned},
+        {"vertical", false, &conf_verify_bool},
         PARTICLE_COMMON_ATTRS,
     };
 
