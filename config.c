@@ -182,7 +182,7 @@ particle_simple_list_from_config(const struct yml_node *node,
     }
 
     struct particle *common = particle_common_new(
-        0, 0, NULL, fcft_clone(inherited.font), inherited.font_shaping,
+        0, 0, 0, 0, NULL, fcft_clone(inherited.font), inherited.font_shaping,
         inherited.foreground, NULL);
 
     return particle_list_new(common, parts, count, false, 0, 2);
@@ -200,16 +200,23 @@ conf_to_particle(const struct yml_node *node, struct conf_inherit inherited)
     const struct yml_node *margin = yml_get_value(pair.value, "margin");
     const struct yml_node *left_margin = yml_get_value(pair.value, "left-margin");
     const struct yml_node *right_margin = yml_get_value(pair.value, "right-margin");
+    const struct yml_node *top_margin = yml_get_value(pair.value, "top-margin");
+    const struct yml_node *bottom_margin = yml_get_value(pair.value, "bottom-margin");
     const struct yml_node *on_click = yml_get_value(pair.value, "on-click");
     const struct yml_node *font_node = yml_get_value(pair.value, "font");
     const struct yml_node *font_shaping_node = yml_get_value(pair.value, "font-shaping");
     const struct yml_node *foreground_node = yml_get_value(pair.value, "foreground");
     const struct yml_node *deco_node = yml_get_value(pair.value, "deco");
 
-    int left = margin != NULL ? yml_value_as_int(margin) :
-        left_margin != NULL ? yml_value_as_int(left_margin) : 0;
-    int right = margin != NULL ? yml_value_as_int(margin) :
-        right_margin != NULL ? yml_value_as_int(right_margin) : 0;
+    int left, right, top, bottom;
+
+    left = right = top = bottom =
+        margin != NULL ? yml_value_as_int(margin) : 0;
+    
+    left = left_margin != NULL ? yml_value_as_int(left_margin) : left;
+    right = right_margin != NULL ? yml_value_as_int(right_margin) : right;
+    top = top_margin != NULL ? yml_value_as_int(top_margin) : top;
+    bottom = bottom_margin != NULL ? yml_value_as_int(bottom_margin) : bottom;
 
     const char *on_click_templates[MOUSE_BTN_COUNT] = {NULL};
     if (on_click != NULL) {
@@ -266,7 +273,7 @@ conf_to_particle(const struct yml_node *node, struct conf_inherit inherited)
 
     /* Instantiate base/common particle */
     struct particle *common = particle_common_new(
-        left, right, on_click_templates, font, font_shaping, foreground, deco);
+        left, right, top, bottom, on_click_templates, font, font_shaping, foreground, deco);
 
     const struct particle_iface *iface = plugin_load_particle(type);
 
