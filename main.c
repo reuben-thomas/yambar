@@ -39,7 +39,8 @@ get_config_path_user_config(void)
 {
     struct passwd *passwd = getpwuid(getuid());
     if (passwd == NULL) {
-        LOG_ERRNO("failed to lookup user");
+        LOG_ERRNO("User entry not found in /etc/passwd. Are you using systemd-homed?");
+        LOG_ERRNO("Please set $XDG_CONFIG_HOME, $HOME or $USER, or use the -c command line option");
         return NULL;
     }
 
@@ -56,12 +57,44 @@ static char *
 get_config_path_xdg(void)
 {
     const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
-    if (xdg_config_home == NULL)
+    if (xdg_config_home == NULL) {
+        LOG_ERRNO("$XDG_CONFIG_HOME environment variable not set, falling back to $HOME");
         return NULL;
+    }
 
     int len = snprintf(NULL, 0, "%s/yambar/config.yml", xdg_config_home);
     char *path = malloc(len + 1);
     snprintf(path, len + 1, "%s/yambar/config.yml", xdg_config_home);
+    return path;
+}
+
+static char *
+get_config_path_user_home(void)
+{
+    const char *user_home = getenv("HOME");
+    if (user_home == NULL) {
+        LOG_ERRNO("$HOME environment variable not set, falling back to /home/$USER");
+        return NULL;
+    }
+
+    int len = snprintf(NULL, 0, "%s/.config/yambar/config.yml", user_home);
+    char *path = malloc(len + 1);
+    snprintf(path, len + 1, "%s/.config/yambar/config.yml", user_home);
+    return path;
+}
+
+static char *
+get_config_path_user(void)
+{
+    const char *user = getenv("USER");
+    if (user == NULL) {
+        LOG_ERRNO("$USER environment variable not set, falling back to search /etc/passwd");
+        return NULL;
+    }
+
+    int len = snprintf(NULL, 0, "/home/%s/.config/yambar/config.yml", user);
+    char *path = malloc(len + 1);
+    snprintf(path, len + 1, "/home/%s/.config/yambar/config.yml", user);
     return path;
 }
 
@@ -71,6 +104,16 @@ get_config_path(void)
     struct stat st;
 
     char *config = get_config_path_xdg();
+    if (config != NULL && stat(config, &st) == 0 && S_ISREG(st.st_mode))
+        return config;
+    free(config);
+
+    config = get_config_path_user_home();
+    if (config != NULL && stat(config, &st) == 0 && S_ISREG(st.st_mode))
+        return config;
+    free(config);
+
+    config = get_config_path_user();
     if (config != NULL && stat(config, &st) == 0 && S_ISREG(st.st_mode))
         return config;
     free(config);
