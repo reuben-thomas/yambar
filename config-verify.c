@@ -241,6 +241,24 @@ conf_verify_font_shaping(keychain_t *chain, const struct yml_node *node)
 }
 
 bool
+conf_verify_string_list(keychain_t *chain, const struct yml_node *node)
+{
+    if (!yml_is_list(node)) {
+        LOG_ERR("%s: must be a list of strings", conf_err_prefix(chain, node));
+        return false;
+    }
+
+    for (struct yml_list_iter it = yml_list_iter(node); it.node != NULL; yml_list_next(&it)) {
+        if (!yml_is_scalar(it.node)) {
+            LOG_ERR("%s: must be a string", conf_err_prefix(chain, node));
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool
 conf_verify_decoration(keychain_t *chain, const struct yml_node *node)
 {
     assert(yml_is_dict(node));
@@ -450,6 +468,12 @@ conf_verify_bar(const struct yml_node *bar)
         {"font", false, &conf_verify_font},
         {"font-shaping", false, &conf_verify_font_shaping},
         {"foreground", false, &conf_verify_color},
+
+        {"icon-basedirs", false, &conf_verify_string_list},
+        // TODO verify icon name
+        //
+        {"icon-themes", false, &conf_verify_string_list},
+        {"icon-size", false, &conf_verify_unsigned},
 
         {"left", false, &verify_module_list},
         {"center", false, &verify_module_list},

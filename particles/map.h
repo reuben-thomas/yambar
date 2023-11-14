@@ -8,6 +8,7 @@ enum map_op {
     MAP_OP_GE,
     MAP_OP_GT,
     MAP_OP_SELF,
+    MAP_OP_ICON_TAG,
     MAP_OP_NOT,
 
     MAP_OP_AND,

@@ -48,3 +48,5 @@ bool conf_verify_particle(keychain_t *chain, const struct yml_node *node);
 bool conf_verify_particle_list_items(keychain_t *chain, const struct yml_node *node);
 
 bool conf_verify_decoration(keychain_t *chain, const struct yml_node *node);
+
+bool conf_verify_string_list(keychain_t *chain, const struct yml_node *node);

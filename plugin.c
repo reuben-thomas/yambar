@@ -97,6 +97,7 @@ EXTERN_PARTICLE(map);
 EXTERN_PARTICLE(progress_bar);
 EXTERN_PARTICLE(ramp);
 EXTERN_PARTICLE(string);
+EXTERN_PARTICLE(icon);
 
 EXTERN_DECORATION(background);
 EXTERN_DECORATION(border);
@@ -227,6 +228,7 @@ static void __attribute__((constructor)) init(void)
     REGISTER_CORE_PARTICLE(progress-bar, progress_bar);
     REGISTER_CORE_PARTICLE(ramp, ramp);
     REGISTER_CORE_PARTICLE(string, string);
+    REGISTER_CORE_PARTICLE(icon, icon);
 
     REGISTER_CORE_DECORATION(background, background);
     REGISTER_CORE_DECORATION(border, border);

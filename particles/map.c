@@ -1,3 +1,5 @@
+#include "tag.h"
+#include "yml.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -85,6 +87,11 @@ str_condition(const char *tag_value, const char *cond_value, enum map_op op)
 static bool
 eval_comparison(const struct map_condition *map_cond, const struct tag_set *tags)
 {
+    if (map_cond->op == MAP_OP_ICON_TAG) {
+        // Do the fallback check if MAP_OP_SELF for if an icon tag exists.
+        return icon_tag_for_name(tags, map_cond->tag) != NULL;
+    }
+
     const struct tag *tag = tag_for_name(tags, map_cond->tag);
     if (tag == NULL) {
         LOG_WARN("tag %s not found", map_cond->tag);
@@ -170,6 +177,7 @@ free_map_condition(struct map_condition *c)
         free(c->value);
         /* FALLTHROUGH */
     case MAP_OP_SELF:
+    case MAP_OP_ICON_TAG:
         free(c->tag);
         break;
     case MAP_OP_AND:
@@ -374,8 +382,15 @@ from_conf(const struct yml_node *node, struct particle *common)
 
     struct particle_map particle_map[yml_dict_length(conditions)];
 
-    struct conf_inherit inherited
-        = {.font = common->font, .font_shaping = common->font_shaping, .foreground = common->foreground};
+    struct conf_inherit inherited = {
+        .font = common->font,
+        .font_shaping = common->font_shaping,
+        .foreground = common->foreground,
+        .basedirs = common->basedirs,
+        .themes = common->themes,
+        .icon_themes = common->icon_themes,
+        .icon_size = common->icon_size,
+    };
 
     size_t idx = 0;
     for (struct yml_dict_iter it = yml_dict_iter(conditions); it.key != NULL; yml_dict_next(&it), idx++) {

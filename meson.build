@@ -52,6 +52,20 @@ libepoll = dependency('epoll-shim', required: false)
 libinotify = dependency('libinotify', required: false)
 pixman = dependency('pixman-1')
 yaml = dependency('yaml-0.1')
+system_nanosvg = cc.find_library('nanosvg', required: get_option('system-nanosvg'))
+system_nanosvgrast = cc.find_library('nanosvgrast', required: get_option('system-nanosvg'))
+if system_nanosvg.found() and system_nanosvgrast.found()
+  nanosvg = declare_dependency(
+     dependencies: [system_nanosvg, system_nanosvgrast]
+  )
+else
+  nanosvg = declare_dependency(
+    sources: ['nanosvg.c', '3rd-party/nanosvg/src/nanosvg.h',
+              'nanosvgrast.c', '3rd-party/nanosvg/src/nanosvgrast.h'],
+    include_directories: '.',
+    dependencies: m)
+endif
+png = dependency('libpng')
 
 # X11/XCB dependencies
 xcb_aux = dependency('xcb-aux', required: get_option('backend-x11'))
@@ -128,8 +142,11 @@ yambar = executable(
   'plugin.c', 'plugin.h',
   'tag.c', 'tag.h',
   'yml.c', 'yml.h',
+  'icon.c', 'icon.h',
+  'png.c', 'png-yambar.h',
+  'stringop.c', 'stringop.h',
   version,
-  dependencies: [bar, libepoll, libinotify,  pixman, yaml, threads, dl, tllist, fcft] +
+  dependencies: [bar, libepoll, libinotify,  pixman, yaml, nanosvg, png, threads, dl, tllist, fcft] +
                 decorations + particles + modules,
   build_rpath: '$ORIGIN/modules:$ORIGIN/decorations:$ORIGIN/particles',
   export_dynamic: true,

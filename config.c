@@ -5,14 +5,18 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wordexp.h>
 
 #include <dlfcn.h>
 
 #include "bar/bar.h"
 #include "color.h"
 #include "config-verify.h"
+#include "icon.h"
 #include "module.h"
 #include "plugin.h"
+#include "tllist.h"
+#include "yml.h"
 
 #define LOG_MODULE "config"
 #define LOG_ENABLE_DBG 0
@@ -130,6 +134,42 @@ conf_to_font_shaping(const struct yml_node *node)
     }
 }
 
+static void
+conf_to_themes(const struct yml_node *node, struct basedirs **basedirs, struct themes **themes)
+{
+    *basedirs = basedirs_new();
+
+    size_t idx = 0;
+    for (struct yml_list_iter it = yml_list_iter(node); it.node != NULL; yml_list_next(&it), idx++) {
+        const char *s = yml_value_as_string(it.node);
+        wordexp_t p;
+        if (wordexp(s, &p, WRDE_UNDEF) == 0) {
+            if (dir_exists(p.we_wordv[0])) {
+                tll_push_back((*basedirs)->basedirs, strdup(p.we_wordv[0]));
+                continue;
+            }
+            wordfree(&p);
+        }
+        LOG_WARN("%s is not a directory", s);
+    }
+
+    if (tll_length((*basedirs)->basedirs) == 0) {
+        LOG_WARN("No valid base directories provided, no themes initialized");
+    }
+
+    *themes = init_themes(*basedirs);
+}
+
+static void
+conf_to_string_list(const struct yml_node *node, struct string_list **string_list)
+{
+    *string_list = string_list_new();
+    size_t idx = 0;
+    for (struct yml_list_iter it = yml_list_iter(node); it.node != NULL; yml_list_next(&it), idx++) {
+        tll_push_back((*string_list)->strings, strdup(yml_value_as_string(it.node)));
+    }
+}
+
 struct deco *
 conf_to_deco(const struct yml_node *node)
 {
@@ -167,8 +207,10 @@ particle_simple_list_from_config(const struct yml_node *node, struct conf_inheri
         assert(particle_list_new != NULL);
     }
 
-    struct particle *common = particle_common_new(0, 0, NULL, fcft_clone(inherited.font), inherited.font_shaping,
-                                                  inherited.foreground, NULL);
+    struct particle *common
+        = particle_common_new(0, 0, NULL, fcft_clone(inherited.font), inherited.font_shaping,
+                              basedirs_inc(inherited.basedirs), themes_inc(inherited.themes),
+                              string_list_inc(inherited.icon_themes), inherited.icon_size, inherited.foreground, NULL);
 
     return particle_list_new(common, parts, count, 0, 2);
 }
@@ -190,6 +232,9 @@ conf_to_particle(const struct yml_node *node, struct conf_inherit inherited)
     const struct yml_node *font_shaping_node = yml_get_value(pair.value, "font-shaping");
     const struct yml_node *foreground_node = yml_get_value(pair.value, "foreground");
     const struct yml_node *deco_node = yml_get_value(pair.value, "deco");
+    const struct yml_node *basedirs_node = yml_get_value(pair.value, "icon-basedirs");
+    const struct yml_node *icon_themes_node = yml_get_value(pair.value, "icon-themes");
+    const struct yml_node *icon_size_node = yml_get_value(pair.value, "icon-size");
 
     int left = margin != NULL ? yml_value_as_int(margin) : left_margin != NULL ? yml_value_as_int(left_margin) : 0;
     int right = margin != NULL ? yml_value_as_int(margin) : right_margin != NULL ? yml_value_as_int(right_margin) : 0;
@@ -271,9 +316,27 @@ conf_to_particle(const struct yml_node *node, struct conf_inherit inherited)
         = font_shaping_node != NULL ? conf_to_font_shaping(font_shaping_node) : inherited.font_shaping;
     pixman_color_t foreground = foreground_node != NULL ? conf_to_color(foreground_node) : inherited.foreground;
 
+    struct themes *themes = NULL;
+    struct basedirs *basedirs = NULL;
+    if (basedirs_node) {
+        conf_to_themes(basedirs_node, &basedirs, &themes);
+    } else {
+        basedirs = basedirs_inc(inherited.basedirs);
+        themes = themes_inc(inherited.themes);
+    }
+
+    struct string_list *icon_themes = NULL;
+    if (icon_themes_node) {
+        conf_to_string_list(icon_themes_node, &icon_themes);
+    } else {
+        icon_themes = string_list_inc(inherited.icon_themes);
+    }
+
+    int icon_size = icon_size_node != NULL ? yml_value_as_int(icon_size_node) : inherited.icon_size;
+
     /* Instantiate base/common particle */
-    struct particle *common
-        = particle_common_new(left, right, on_click_templates, font, font_shaping, foreground, deco);
+    struct particle *common = particle_common_new(left, right, on_click_templates, font, font_shaping, basedirs, themes,
+                                                  icon_themes, icon_size, foreground, deco);
 
     const struct particle_iface *iface = plugin_load_particle(type);
 
@@ -421,15 +484,40 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
     if (font_shaping_node != NULL)
         font_shaping = conf_to_font_shaping(font_shaping_node);
 
+    // Get a default icon basedirs
+    struct basedirs *basedirs = NULL;
+    struct themes *themes = NULL;
+    const struct yml_node *basedirs_node = yml_get_value(bar, "icon-basedirs");
+    if (basedirs_node != NULL) {
+        conf_to_themes(basedirs_node, &basedirs, &themes);
+    } else {
+        basedirs = get_basedirs();
+        themes = init_themes(basedirs);
+    }
+
+    const struct yml_node *icon_themes_node = yml_get_value(bar, "icon-themes");
+    struct string_list *icon_themes = NULL;
+    if (icon_themes_node != NULL) {
+        conf_to_string_list(icon_themes_node, &icon_themes);
+    } else {
+        // Just use an empty list by default.
+        icon_themes = string_list_new();
+    }
+
+    const struct yml_node *icon_size_node = yml_get_value(bar, "icon-size");
+    int icon_size = icon_size_node ? yml_value_as_int(icon_size_node) : conf.height;
+
     const struct yml_node *foreground_node = yml_get_value(bar, "foreground");
     if (foreground_node != NULL)
         foreground = conf_to_color(foreground_node);
 
-    struct conf_inherit inherited = {
-        .font = font,
-        .font_shaping = font_shaping,
-        .foreground = foreground,
-    };
+    struct conf_inherit inherited = {.font = font,
+                                     .font_shaping = font_shaping,
+                                     .basedirs = basedirs,
+                                     .themes = themes,
+                                     .icon_themes = icon_themes,
+                                     .icon_size = icon_size,
+                                     .foreground = foreground};
 
     const struct yml_node *left = yml_get_value(bar, "left");
     const struct yml_node *center = yml_get_value(bar, "center");
@@ -456,16 +544,41 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
                 const struct yml_node *mod_font = yml_get_value(m.value, "font");
                 const struct yml_node *mod_font_shaping = yml_get_value(m.value, "font-shaping");
                 const struct yml_node *mod_foreground = yml_get_value(m.value, "foreground");
+                const struct yml_node *mod_basedirs = yml_get_value(m.value, "icon-basedirs");
+                const struct yml_node *mod_icon_themes = yml_get_value(m.value, "icon-themes");
+                const struct yml_node *mod_icon_size = yml_get_value(m.value, "icon-size");
 
-                struct conf_inherit mod_inherit = {
-                    .font = mod_font != NULL ? conf_to_font(mod_font) : inherited.font,
-                    .font_shaping
-                    = mod_font_shaping != NULL ? conf_to_font_shaping(mod_font_shaping) : inherited.font_shaping,
-                    .foreground = mod_foreground != NULL ? conf_to_color(mod_foreground) : inherited.foreground,
-                };
+                struct basedirs *inherit_basedirs = NULL;
+                struct themes *inherit_themes = NULL;
+                if (mod_basedirs) {
+                    conf_to_themes(mod_basedirs, &inherit_basedirs, &inherit_themes);
+                } else {
+                    inherit_themes = themes_inc(inherited.themes);
+                    inherit_basedirs = basedirs_inc(inherited.basedirs);
+                }
+
+                struct string_list *inherit_icon_themes = NULL;
+                if (mod_icon_themes) {
+                    conf_to_string_list(mod_icon_themes, &inherit_icon_themes);
+                } else {
+                    inherit_icon_themes = string_list_inc(inherited.icon_themes);
+                }
+
+                struct conf_inherit mod_inherit
+                    = {.font = mod_font != NULL ? conf_to_font(mod_font) : inherited.font,
+                       .font_shaping
+                       = mod_font_shaping != NULL ? conf_to_font_shaping(mod_font_shaping) : inherited.font_shaping,
+                       .basedirs = inherit_basedirs,
+                       .themes = inherit_themes,
+                       .icon_themes = inherit_icon_themes,
+                       .icon_size = mod_icon_size != NULL ? yml_value_as_int(mod_icon_size) : inherited.icon_size,
+                       .foreground = mod_foreground != NULL ? conf_to_color(mod_foreground) : inherited.foreground};
 
                 const struct module_iface *iface = plugin_load_module(mod_name);
                 mods[idx] = iface->from_conf(m.value, mod_inherit);
+                themes_dec(inherit_themes);
+                basedirs_dec(inherit_basedirs);
+                string_list_dec(inherit_icon_themes);
             }
 
             if (i == 0) {
@@ -487,6 +600,9 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
     free(conf.center.mods);
     free(conf.right.mods);
     fcft_destroy(font);
+    themes_dec(themes);
+    basedirs_dec(basedirs);
+    string_list_dec(icon_themes);
 
     return ret;
 }

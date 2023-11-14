@@ -72,6 +72,7 @@ void yyerror(const char *s);
 &&                      yylval.op = MAP_OP_AND; return BOOL_OP;
 \|\|                    yylval.op = MAP_OP_OR; return BOOL_OP;
 ~                       return NOT;
+\+                      return AT;
 \(                      return L_PAR;
 \)                      return R_PAR;
 [ \t\n]                 ;

@@ -296,6 +296,10 @@ from_conf(const struct yml_node *node, struct particle *common)
         .font = common->font,
         .font_shaping = common->font_shaping,
         .foreground = common->foreground,
+        .basedirs = common->basedirs,
+        .themes = common->themes,
+        .icon_themes = common->icon_themes,
+        .icon_size = common->icon_size,
     };
 
     return progress_bar_new(common, yml_value_as_string(tag), yml_value_as_int(length),

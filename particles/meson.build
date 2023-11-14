@@ -20,7 +20,7 @@ pfiles = pgen.process('map.y')
 
 map_parser = declare_dependency(sources: [pfiles, lfiles], include_directories: '.')
 
-particle_sdk = declare_dependency(dependencies: [pixman, tllist, fcft])
+particle_sdk = declare_dependency(dependencies: [pixman, tllist, fcft, nanosvg])
 
 dynlist_lib = build_target(
   'dynlist', 'dynlist.c', 'dynlist.h', dependencies: particle_sdk,
@@ -40,6 +40,7 @@ deps = {
   'progress-bar': [],
   'ramp': [],
   'string': [],
+  'icon': [],
 }
 
 particles = []

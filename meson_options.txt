@@ -48,3 +48,5 @@ option('plugin-xkb', type: 'feature', value: 'auto',
        description: 'keyboard support for X11')
 option('plugin-xwindow', type: 'feature', value: 'auto',
        description: 'XWindow (window tracking for X11) support')
+option('system-nanosvg', type: 'feature', value: 'disabled',
+       description: 'use system\'s nanosvg instead of the bundled version')

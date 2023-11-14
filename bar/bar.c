@@ -1,4 +1,5 @@
 #include "bar.h"
+#include "icon.h"
 #include "private.h"
 
 #include <assert.h>

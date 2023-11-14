@@ -199,8 +199,9 @@ from_conf(const struct yml_node *node, struct particle *common)
 
     size_t idx = 0;
     for (struct yml_list_iter it = yml_list_iter(items); it.node != NULL; yml_list_next(&it), idx++) {
-        parts[idx]
-            = conf_to_particle(it.node, (struct conf_inherit){common->font, common->font_shaping, common->foreground});
+        parts[idx] = conf_to_particle(it.node, (struct conf_inherit){common->font, common->font_shaping, common->themes,
+                                                                     common->basedirs, common->icon_themes,
+                                                                     common->icon_size, common->foreground});
     }
 
     long min_v = min != NULL ? yml_value_as_int(min) : 0;
