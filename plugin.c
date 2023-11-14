@@ -81,6 +81,9 @@ EXTERN_MODULE(river);
 #if defined(HAVE_PLUGIN_script)
 EXTERN_MODULE(script);
 #endif
+#if defined(HAVE_PLUGIN_tray)
+EXTERN_MODULE(tray);
+#endif
 #if defined(HAVE_PLUGIN_sway_xkb)
 EXTERN_MODULE(sway_xkb);
 #endif
@@ -214,6 +217,9 @@ static void __attribute__((constructor)) init(void)
 #endif
 #if defined(HAVE_PLUGIN_sway_xkb)
     REGISTER_CORE_MODULE(sway-xkb, sway_xkb);
+#endif
+#if defined(HAVE_PLUGIN_tray)
+    REGISTER_CORE_MODULE(tray, tray);
 #endif
 #if defined(HAVE_PLUGIN_xkb)
     REGISTER_CORE_MODULE(xkb, xkb);
