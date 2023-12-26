@@ -1279,7 +1279,6 @@ loop(struct bar *_bar,
             bool do_expose = false;
 
             /* Coalesce “refresh” commands */
-            size_t count = 0;
             while (true) {
                 uint8_t command;
                 ssize_t r = read(backend->pipe_fds[0], &command, sizeof(command));
@@ -1293,7 +1292,6 @@ loop(struct bar *_bar,
 
                 assert(command == 1);
                 if (command == 1) {
-                    count++;
                     do_expose = true;
                 }
             }
