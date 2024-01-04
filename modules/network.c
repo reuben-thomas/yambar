@@ -181,7 +181,7 @@ content(struct module *mod)
             tag_new_float(mod, "dl-speed", m->dl_speed),
             tag_new_float(mod, "ul-speed", m->ul_speed),
         },
-        .count = 13,
+        .count = 14,
     };
 
     mtx_unlock(&mod->lock);
