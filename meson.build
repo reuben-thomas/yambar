@@ -178,6 +178,7 @@ summary(
     'Foreign toplevel (window tracking for Wayland)': plugin_foreign_toplevel_enabled,
     'Memory monitoring': plugin_mem_enabled,
     'Music Player Daemon (MPD)': plugin_mpd_enabled,
+    'Media Player Remote Interface Specificaion (MPRIS)': plugin_mpris_enabled,
     'i3+Sway': plugin_i3_enabled,
     'Label': plugin_label_enabled,
     'Network monitoring': plugin_network_enabled,
