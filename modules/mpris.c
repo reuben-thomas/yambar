@@ -27,6 +27,29 @@
 #include "../log.h"
 #include "../plugin.h"
 
+/* TODO: Process 'NameOwnerChanged'/'PropertiesChanged' signals.
+ * Should we listen for signals, instead of querying?
+ * + We get notified, if something changed, reducing our own overhead
+ * + A convinient way to handle missing properties, since we will
+ *   never be notified there nonexistence.
+ * - "MPRIS compatible" clients do not necessarily correctly implement
+ *   the MPRIS interface (for example, firefox reports some missing
+ *   properties as 'InvalidArg', when the error should be
+ *   'UnhandledProperty'). While this is also an issue for querying,
+ *   the impact is a lot more managable, since we know right away
+ *   what properties we are missing, and don't have to wait for them
+ *   to change. This also assumes that the client emits the
+ *   'PropertiesChanged' signal correctly, which (again) does not seem to be
+ *   for everyone ('').
+ * - The relevant signals are only emitted when, well, something changed.
+ *   This means that we have fall back to querying if we want to build an initial state. */
+
+/* TODO: Move from 'Get' to the 'GetAll' method on the 'org.freedesktop.DBus.Properties' interface.
+ * + A generalized way to handle missing properties
+ * + Reduced overhead, since we only call a single method
+ * + Buid a list of available properties (bitmap)
+ * - Complex parsing logic */
+
 enum mpris_playback_state {
     MPRIS_PLAYBACK_INVALID,
     MPRIS_PLAYBACK_STOPPED,
@@ -42,7 +65,7 @@ enum mpris_loop_state {
 };
 
 struct mpris_metadata {
-    uint64_t length_nsec;
+    uint64_t length_usec;
     char *trackid;
     char *artists;
     char *album;
@@ -63,7 +86,7 @@ struct private
 {
     struct particle *label;
     /* TODO: This should be an array of options */
-    const char *target_identity;
+    const char *desired_bus_name;
     DBusConnection *connection;
 
     const char *target_bus_name;
@@ -94,7 +117,6 @@ struct private
 #define MPRIS_DBUS_BUS "org.freedesktop.DBus"
 #define MPRIS_DBUS_INTERFACE "org.freedesktop.DBus"
 
-/* TODO: Don't block */
 static DBusMessage *
 mpris_call_method_and_block(DBusConnection *connection, DBusMessage *message)
 {
@@ -111,25 +133,24 @@ mpris_call_method_and_block(DBusConnection *connection, DBusMessage *message)
     /* Handle and gracrfully return different error types
      * ('org.freedesktop.DBus.Error.NotSupported' etc.)*/
     DBusMessage *reply = dbus_pending_call_steal_reply(pending);
-    if (dbus_message_get_type(reply) == DBUS_MESSAGE_TYPE_ERROR) {
-        const char *error_name = dbus_message_get_error_name(reply);
-        if (dbus_message_is_error(reply, error_name)) {
-            DBusError error = {0};
-            LOG_ERR("Message call returned an error: %s", error_name);
-            if (dbus_set_error_from_message(&error, message)) {
-                LOG_ERR("Report: %s", error.message);
-            }
-            dbus_error_free(&error);
-            dbus_pending_call_unref(pending);
-            return NULL;
+    DBusError error = {0};
+    if (dbus_set_error_from_message(&error, reply)) {
+        if ((strcmp(error.name, DBUS_ERROR_INVALID_ARGS) != 0) && (strcmp(error.name, DBUS_ERROR_NOT_SUPPORTED) != 0)) {
+            LOG_ERR("Unhandled error: '%s' (%s)", error.message, error.name);
+        } else {
+            LOG_DBG("%s: %s", error.name, error.message);
         }
+
+        dbus_message_unref(reply);
+        dbus_error_free(&error);
+        reply = NULL;
     }
 
     dbus_pending_call_unref(pending);
     return reply;
 }
 
-__attribute__((unused)) static DBusMessage *
+static DBusMessage *
 mpris_get_property(DBusConnection *connection, const char *bus_name, const char *interface, const char *property_name)
 {
     assert(bus_name != NULL && strlen(bus_name) > 0);
@@ -142,6 +163,10 @@ mpris_get_property(DBusConnection *connection, const char *bus_name, const char 
                              DBUS_TYPE_INVALID);
     return mpris_call_method_and_block(connection, message);
 }
+
+/* TODO: Handle name changes
+ * We essentially have two options:
+ * 1. Listen for 'NameOwnerChanged' */
 
 static char *
 mpris_get_bus_name(DBusConnection *connection, const char *identity_name)
@@ -227,7 +252,7 @@ mpris_unwrap_iter(DBusMessageIter *iter, dbus_int32_t type, void *target)
         break;
     default:;
         char *signature = dbus_message_iter_get_signature(&type_iter);
-        LOG_WARN("Trying to unwrap unsupported type: %s", signature);
+        LOG_WARN("Trying to unwrap unsupported type: %s. Ignoring", signature);
         dbus_free(signature);
         status = false;
     }
@@ -278,7 +303,9 @@ mpris_metadata_parse(const char *entry_name, DBusMessageIter *entry_iter, struct
 
     } else if (strcmp(entry_name, "mpris:length") == 0) {
         assert(dbus_message_iter_get_arg_type(entry_iter) == DBUS_TYPE_INT64);
-        dbus_message_iter_get_basic(entry_iter, &buffer->length_nsec);
+        dbus_message_iter_get_basic(entry_iter, &buffer->length_usec);
+    } else {
+        /*LOG_DBG("Ignoring unhandled metadata property: %s", entry_name);*/
     }
 
     return true;
@@ -311,7 +338,7 @@ mpris_unwrap_metadata_message(DBusMessage *message, struct mpris_metadata *metad
 
         dbus_message_iter_next(&entry_iter);
         dbus_message_iter_recurse(&entry_iter, &entry_sub_iter);
-        mpris_metadata_parse(entry_name, &entry_sub_iter, metadata);
+        status = mpris_metadata_parse(entry_name, &entry_sub_iter, metadata);
 
         dbus_message_iter_next(&array_iter);
     }
@@ -358,7 +385,7 @@ destroy(struct module *mod)
     dbus_connection_close(m->connection);
 
     free((void *)m->target_bus_name);
-    free((void *)m->target_identity);
+    free((void *)m->desired_bus_name);
 
     mpris_clear(&m->property);
 
@@ -382,59 +409,67 @@ content(struct module *mod)
 
     /* usec -> msec -> sec */
     uint32_t position_sec = m->property.position_usec / 1000 / 1000;
-    uint32_t length_sec = metadata.length_nsec / 1000 / 1000;
+    uint32_t length_sec = metadata.length_usec / 1000 / 1000;
 
-    char pos[16], end[16];
-    secs_to_str(position_sec, pos, sizeof(pos));
-    secs_to_str(length_sec, end, sizeof(end));
+    char pos_buffer[16] = {0}, end_buffer[16] = {0};
+    if (length_sec > 0) {
+        secs_to_str(position_sec, pos_buffer, sizeof(pos_buffer));
+        secs_to_str(length_sec, end_buffer, sizeof(end_buffer));
+    }
 
-    char *playback_str = NULL;
+    char *tag_playback_value = NULL;
     switch (m->property.playback_status) {
     case MPRIS_PLAYBACK_STOPPED:
-        playback_str = "stopped";
+        tag_playback_value = "stopped";
         break;
     case MPRIS_PLAYBACK_PLAYING:
-        playback_str = "playing";
+        tag_playback_value = "playing";
         break;
     case MPRIS_PLAYBACK_PAUSED:
-        playback_str = "paused";
+        tag_playback_value = "paused";
         break;
     case MPRIS_PLAYBACK_INVALID:
-        playback_str = "offline";
+        tag_playback_value = "offline";
     }
 
-    char *loop_str = NULL;
+    char *tag_loop_value = NULL;
     switch (m->property.loop_status) {
     case MPRIS_LOOP_NONE:
-        loop_str = "none";
+        tag_loop_value = "none";
         break;
     case MPRIS_LOOP_TRACK:
-        loop_str = "track";
+        tag_loop_value = "track";
         break;
     case MPRIS_LOOP_PLAYLIST:
-        loop_str = "playlist";
+        tag_loop_value = "playlist";
         break;
-    default:
-        loop_str = "";
+    case MPRIS_LOOP_INVALID:
+        tag_loop_value = "";
         break;
     }
 
-    uint32_t volume = (m->property.volume >= 0.995) ? 100 : 100 * m->property.volume;
+    const char *tag_identity_value = (m->desired_bus_name == NULL) ? "" : m->desired_bus_name;
+    const char *tag_album_value = (metadata.album == NULL) ? "" : metadata.album;
+    const char *tag_artists_value = (metadata.album == NULL) ? "" : metadata.artists;
+    const char *tag_title_value = (metadata.album == NULL) ? "" : metadata.title;
+    const char *tag_end_value = end_buffer;
+    const char *tag_pos_value = pos_buffer;
+
+    uint32_t tag_volume_value = (m->property.volume >= 0.995) ? 100 : 100 * m->property.volume;
+    bool tag_shuffle_value = m->property.shuffle;
 
     struct tag_set tags = {
         .tags = (struct tag *[]){
-            tag_new_string(mod, "state", playback_str),
-            tag_new_string(mod, "identity", m->target_identity),
-            /* Stay consistent with existing modules naming
-             * conventions (mpd)? */
-            tag_new_bool(mod, "random", m->property.shuffle),
-            tag_new_string(mod, "loop", loop_str),
-            tag_new_int_range(mod, "volume", volume, 0, 100),
-            tag_new_string(mod, "album", metadata.album),
-            tag_new_string(mod, "artist", metadata.artists),
-            tag_new_string(mod, "title", metadata.title),
-            tag_new_string(mod, "pos", pos),
-            tag_new_string(mod, "end", end),
+            tag_new_string(mod, "state", tag_playback_value),
+            tag_new_string(mod, "identity", tag_identity_value),
+            tag_new_bool(mod, "random", tag_shuffle_value),
+            tag_new_string(mod, "loop", tag_loop_value),
+            tag_new_int_range(mod, "volume", tag_volume_value, 0, 100),
+            tag_new_string(mod, "album", tag_album_value),
+            tag_new_string(mod, "artist", tag_artists_value),
+            tag_new_string(mod, "title", tag_title_value),
+            tag_new_string(mod, "pos", tag_end_value),
+            tag_new_string(mod, "end", tag_pos_value),
             tag_new_int_realtime(
                 mod, "elapsed", position_sec, 0, length_sec, TAG_REALTIME_SECS),
         },
@@ -458,49 +493,61 @@ update_status(struct module *mod)
     /* Property: Metadata */
     mpris_clear(&m->property);
     DBusMessage *message = mpris_get_property(m->connection, m->target_bus_name, MPRIS_INTERFACE_PLAYER, "Metadata");
-    mpris_unwrap_metadata_message(message, &m->property.metadata);
-    dbus_message_unref(message);
+    if (message != NULL) {
+        mpris_unwrap_metadata_message(message, &m->property.metadata);
+        dbus_message_unref(message);
+    }
 
     /* Update remaining properties */
     /* Property: PlaybackStatus */
     char *string = NULL;
     message = mpris_get_property(m->connection, m->target_bus_name, MPRIS_INTERFACE_PLAYER, "PlaybackStatus");
-    mpris_unwrap_message(message, DBUS_TYPE_STRING, &string);
-    if (strcmp(string, "Stopped")) {
-        m->property.playback_status = MPRIS_PLAYBACK_STOPPED;
-    } else if (strcmp(string, "Paused")) {
-        m->property.playback_status = MPRIS_PLAYBACK_PAUSED;
-    } else if (strcmp(string, "Playing")) {
-        m->property.playback_status = MPRIS_PLAYBACK_PLAYING;
+    if (message != NULL) {
+        mpris_unwrap_message(message, DBUS_TYPE_STRING, &string);
+        if (strcmp(string, "Stopped")) {
+            m->property.playback_status = MPRIS_PLAYBACK_STOPPED;
+        } else if (strcmp(string, "Paused")) {
+            m->property.playback_status = MPRIS_PLAYBACK_PAUSED;
+        } else if (strcmp(string, "Playing")) {
+            m->property.playback_status = MPRIS_PLAYBACK_PLAYING;
+        }
+        dbus_message_unref(message);
     }
-    dbus_message_unref(message);
 
     /* Property: LoopStatus */
     message = mpris_get_property(m->connection, m->target_bus_name, MPRIS_INTERFACE_PLAYER, "LoopStatus");
-    mpris_unwrap_message(message, DBUS_TYPE_STRING, &string);
-    if (strcmp(string, "None")) {
-        m->property.loop_status = MPRIS_LOOP_NONE;
-    } else if (strcmp(string, "Track")) {
-        m->property.loop_status = MPRIS_LOOP_TRACK;
-    } else if (strcmp(string, "Playlist")) {
-        m->property.loop_status = MPRIS_LOOP_PLAYLIST;
+    if (message != NULL) {
+        mpris_unwrap_message(message, DBUS_TYPE_STRING, &string);
+        if (strcmp(string, "None")) {
+            m->property.loop_status = MPRIS_LOOP_NONE;
+        } else if (strcmp(string, "Track")) {
+            m->property.loop_status = MPRIS_LOOP_TRACK;
+        } else if (strcmp(string, "Playlist")) {
+            m->property.loop_status = MPRIS_LOOP_PLAYLIST;
+        }
+        dbus_message_unref(message);
     }
-    dbus_message_unref(message);
 
     /* Property: Volume */
     message = mpris_get_property(m->connection, m->target_bus_name, MPRIS_INTERFACE_PLAYER, "Volume");
-    mpris_unwrap_message(message, DBUS_TYPE_DOUBLE, &m->property.volume);
-    dbus_message_unref(message);
+    if (message != NULL) {
+        mpris_unwrap_message(message, DBUS_TYPE_DOUBLE, &m->property.volume);
+        dbus_message_unref(message);
+    }
 
     /* Property: Rate */
     message = mpris_get_property(m->connection, m->target_bus_name, MPRIS_INTERFACE_PLAYER, "Rate");
-    mpris_unwrap_message(message, DBUS_TYPE_DOUBLE, &m->property.rate);
-    dbus_message_unref(message);
+    if (message != NULL) {
+        mpris_unwrap_message(message, DBUS_TYPE_DOUBLE, &m->property.rate);
+        dbus_message_unref(message);
+    }
 
     /* Property: Position */
     message = mpris_get_property(m->connection, m->target_bus_name, MPRIS_INTERFACE_PLAYER, "Position");
-    mpris_unwrap_message(message, DBUS_TYPE_INT64, &m->property.position_usec);
-    dbus_message_unref(message);
+    if (message != NULL) {
+        mpris_unwrap_message(message, DBUS_TYPE_INT64, &m->property.position_usec);
+        dbus_message_unref(message);
+    }
 
     mtx_unlock(&mod->lock);
 
@@ -543,16 +590,16 @@ run(struct module *mod)
 
         /* TODO: Set up listener to catch disconnect events */
         if (m->target_bus_name == NULL) {
-            m->target_bus_name = mpris_get_bus_name(m->connection, "ncspot");
+            m->target_bus_name = mpris_get_bus_name(m->connection, m->desired_bus_name);
             if (m->target_bus_name == NULL) {
                 continue;
             }
 
-            /* TODO: This call might fail the the client does not
-             * respect the mpris spec */
             DBusMessage *message = mpris_get_property(m->connection, m->target_bus_name, MPRIS_INTERFACE, "Identity");
-            mpris_unwrap_message(message, DBUS_TYPE_STRING, &m->target_identity);
-            LOG_DBG("Player identity: %s", m->target_identity);
+            if (message != NULL) {
+                mpris_unwrap_message(message, DBUS_TYPE_STRING, &m->desired_bus_name);
+                LOG_DBG("Player identity: %s", m->desired_bus_name);
+            }
         }
 
         aborted = !update_status(mod);
@@ -579,7 +626,7 @@ mpris_new(const char *identity, struct particle *label)
 {
     struct private *priv = calloc(1, sizeof(*priv));
     priv->label = label;
-    priv->target_identity = identity;
+    priv->desired_bus_name = strdup(identity);
 
     struct module *mod = module_common_new();
     mod->private = priv;
