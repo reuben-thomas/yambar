@@ -530,6 +530,7 @@ tags_expand_template(const char *template, const struct tag_set *tags)
 
         int digits = 0;
         int decimals = 2;
+        bool use_byte = false;
         bool zero_pad = false;
         char *point = NULL;
 
@@ -546,16 +547,40 @@ tags_expand_template(const char *template, const struct tag_set *tags)
                 format = FMT_BYTE;
             else if (strcmp(tag_args[i], "kb") == 0)
                 format = FMT_KBYTE;
+            else if (strcmp(tag_args[i], "kbit") == 0) {
+                format = FMT_KBYTE;
+                use_byte = true;
+            }
             else if (strcmp(tag_args[i], "mb") == 0)
                 format = FMT_MBYTE;
+            else if (strcmp(tag_args[i], "mbit") == 0) {
+                format = FMT_MBYTE;
+                use_byte = true;
+            }
             else if (strcmp(tag_args[i], "gb") == 0)
                 format = FMT_GBYTE;
+            else if (strcmp(tag_args[i], "gbit") == 0) {
+                format = FMT_GBYTE;
+                use_byte = true;
+            }
             else if (strcmp(tag_args[i], "kib") == 0)
                 format = FMT_KIBYTE;
+            else if (strcmp(tag_args[i], "kibit") == 0) {
+                format = FMT_KIBYTE;
+                use_byte = true;
+            }
             else if (strcmp(tag_args[i], "mib") == 0)
                 format = FMT_MIBYTE;
+            else if (strcmp(tag_args[i], "mibit") == 0) {
+                format = FMT_MIBYTE;
+                use_byte = true;
+            }
             else if (strcmp(tag_args[i], "gib") == 0)
                 format = FMT_GIBYTE;
+            else if (strcmp(tag_args[i], "gibit") == 0) {
+                format = FMT_GIBYTE;
+                use_byte = true;
+            }
             else if (strcmp(tag_args[i], "min") == 0)
                 kind = VALUE_MIN;
             else if (strcmp(tag_args[i], "max") == 0)
@@ -644,7 +669,7 @@ tags_expand_template(const char *template, const struct tag_set *tags)
             case FMT_KIBYTE:
             case FMT_MIBYTE:
             case FMT_GIBYTE: {
-                const long divider =
+                long divider =
                     format == FMT_BYTE
                         ? 8
                         : format == FMT_KBYTE
@@ -660,6 +685,10 @@ tags_expand_template(const char *template, const struct tag_set *tags)
                                             : format == FMT_GIBYTE
                                                 ? 1024 * 1024 * 1024
                                                 : 1;
+
+                if (use_byte) {
+                    divider *= 8;
+                }
 
                 char str[24];
                 if (tag->type(tag) == TAG_TYPE_FLOAT) {

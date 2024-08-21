@@ -100,6 +100,15 @@ be used.
 :  format
 :  All tag types
 :  Same as *kb*, *mb* and *gb*, but divide by 1024^n instead of 1000^n.
+|  kbit, mbit, gbit
+:  format
+:  All tag types
+:  Renders a tag's value (in decimal) divided by 8\*1000, 8\*1000^2 or
+   8\*1000^3. Note: no unit suffix is appended
+|  kibit, mibit, gibit
+:  format
+:  All tag types
+:  Same as *kbit*, *mbit* and *gbit*, but divide by 8\*1024^n instead of 8\*1000^n.
 |  min
 :  selector
 :  Range tags
