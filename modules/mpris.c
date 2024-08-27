@@ -44,25 +44,8 @@ enum mpris_status {
     MPRIS_STATUS_ERROR,
 };
 
-enum mpris_property_type {
-    MPRIS_PROP_PLAYBACK_STATUS,
-    MPRIS_PROP_LOOP_STATUS,
-    MPRIS_PROP_POSITION,
-    MPRIS_PROP_RATE,
-    MPRIS_PROP_VOLUME,
-    MPRIS_PROP_SHUFFLE,
-};
-
-enum mpris_metadata_type {
-    MPRIS_META_PROP_LENGTH,
-    MPRIS_META_PROP_TRACKID,
-    MPRIS_META_PROP_ARTISTS,
-    MPRIS_META_PROP_ALBUM,
-    MPRIS_META_PROP_TITLE,
-};
-
 struct mpris_metadata {
-    uint64_t length_usec;
+    uint64_t length_us;
     char *trackid;
     char *artists;
     char *album;
@@ -73,7 +56,7 @@ struct mpris_property {
     struct mpris_metadata metadata;
     char *playback_status;
     char *loop_status;
-    uint64_t position_usec;
+    uint64_t position_us;
     double rate;
     double volume;
     bool shuffle;
@@ -95,10 +78,9 @@ struct mpris_client {
 
     struct mpris_property property;
 
-    struct {
-        uint64_t value_usec;
-        struct timespec when;
-    } elapsed;
+    /* The unix timestamp of the last position change (ie.
+     * seeking, pausing) */
+    struct timespec seeked_when;
 };
 
 struct private
@@ -106,7 +88,6 @@ struct private
     uint32_t query_timeout_ms;
     thrd_t refresh_thread_id;
     int refresh_abort_fd;
-    int listener_fd;
 
     DBusConnection *connection;
     struct particle *label;
@@ -191,10 +172,6 @@ mpris_find_bus_name(DBusConnection *connection, const char *identity)
         return NULL;
     }
 
-    if (bus_count == 0) {
-        return NULL;
-    }
-
     char *string = NULL;
     for (dbus_int32_t i = 0; i < bus_count; i++) {
         if (mpris_validate_bus_name(identity, bus_names[i])) {
@@ -203,12 +180,13 @@ mpris_find_bus_name(DBusConnection *connection, const char *identity)
         }
     }
 
-    dbus_free_string_array(bus_names);
+    if (bus_names != NULL)
+        dbus_free_string_array(bus_names);
     dbus_error_free(&error);
     dbus_message_unref(reply);
 
     if (string == NULL) {
-        LOG_ERR("Failed to find bus name for identity: %s", identity);
+        LOG_INFO("Failed to find bus name for identity: %s", identity);
         return NULL;
     }
 
@@ -242,7 +220,12 @@ mpris_metadata_parse_property(const char *property_name, DBusMessageIter *iter, 
 {
     const char *string_value = NULL;
     DBusMessageIter array_iter = {0};
-    __attribute__((unused)) uint32_t type = dbus_message_iter_get_arg_type(iter);
+    __attribute__((unused)) dbus_int32_t type = dbus_message_iter_get_arg_type(iter);
+
+    /* Do not parse empty arrays */
+    if (type == DBUS_TYPE_ARRAY && dbus_message_iter_get_element_count(iter) == 0) {
+        return true;
+    }
 
     if (strcmp(property_name, "mpris:trackid") == 0) {
         assert(type == DBUS_TYPE_OBJECT_PATH || type == DBUS_TYPE_STRING);
@@ -272,7 +255,7 @@ mpris_metadata_parse_property(const char *property_name, DBusMessageIter *iter, 
 
     } else if (strcmp(property_name, "mpris:length") == 0) {
         assert(type == DBUS_TYPE_INT64 || type == DBUS_TYPE_UINT64);
-        dbus_message_iter_get_basic(iter, &buffer->length_usec);
+        dbus_message_iter_get_basic(iter, &buffer->length_us);
     } else {
         /*LOG_DBG("Ignoring metadata property: %s", entry_name);*/
     }
@@ -286,7 +269,6 @@ mpris_metadata_parse_array(struct mpris_metadata *metadata, DBusMessageIter *ite
     bool status = true;
     DBusMessageIter array_iter = {0};
 
-    /* Unpack values returned from DBus method calls */
     assert(dbus_message_iter_get_arg_type(iter) == DBUS_TYPE_ARRAY);
     dbus_message_iter_recurse(iter, &array_iter);
 
@@ -335,7 +317,7 @@ mpris_property_parse(struct mpris_property *prop, const char *property_name, DBu
         dbus_message_iter_get_basic(&iter, &prop->loop_status);
     } else if (strcmp(property_name, "Position") == 0) {
         assert(dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_INT64);
-        dbus_message_iter_get_basic(&iter, &prop->position_usec);
+        dbus_message_iter_get_basic(&iter, &prop->position_us);
     } else if (strcmp(property_name, "Shuffle") == 0) {
         assert(dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_BOOLEAN);
         dbus_message_iter_get_basic(&iter, &prop->shuffle);
@@ -377,9 +359,9 @@ mpris_reset_client(struct mpris_client *client)
 /* ------------- */
 
 static void
-usecs_to_str(unsigned usecs, char *s, size_t sz)
+format_usec_timestamp(unsigned usec, char *s, size_t sz)
 {
-    uint32_t secs = usecs / 1000 / 1000;
+    uint32_t secs = usec / 1000 / 1000;
     uint32_t hours = secs / (60 * 60);
     uint32_t minutes = secs % (60 * 60) / 60;
     secs %= 60;
@@ -414,7 +396,7 @@ description(const struct module *mod)
 }
 
 static uint64_t
-timespec_diff_usec(const struct timespec *a, const struct timespec *b)
+timespec_diff_us(const struct timespec *a, const struct timespec *b)
 {
     uint64_t nsecs_a = a->tv_sec * 1000000000 + a->tv_nsec;
     uint64_t nsecs_b = b->tv_sec * 1000000000 + b->tv_nsec;
@@ -436,23 +418,23 @@ content(struct module *mod)
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    uint64_t elapsed_usec = client->elapsed.value_usec;
-    uint64_t length_usec = metadata.length_usec;
+    uint64_t elapsed_us = client->property.position_us;
+    uint64_t length_us = metadata.length_us;
 
     if (m->client.status == MPRIS_STATUS_PLAYING) {
-        elapsed_usec += timespec_diff_usec(&now, &client->elapsed.when);
-        if (elapsed_usec > length_usec) {
+        elapsed_us += timespec_diff_us(&now, &client->seeked_when);
+        if (elapsed_us > length_us) {
             LOG_DBG("dynamic update of elapsed overflowed: "
                     "elapsed=%" PRIu64 ", duration=%" PRIu64,
-                    elapsed_usec, length_usec);
-            elapsed_usec = length_usec;
+                    elapsed_us, length_us);
+            elapsed_us = length_us;
         }
     }
 
     char tag_pos_value[16] = {0}, tag_end_value[16] = {0};
-    if (length_usec > 0) {
-        usecs_to_str(elapsed_usec, tag_pos_value, sizeof(tag_pos_value));
-        usecs_to_str(length_usec, tag_end_value, sizeof(tag_end_value));
+    if (length_us > 0) {
+        format_usec_timestamp(elapsed_us, tag_pos_value, sizeof(tag_pos_value));
+        format_usec_timestamp(length_us, tag_end_value, sizeof(tag_end_value));
     }
 
     char *tag_state_value = NULL;
@@ -474,7 +456,6 @@ content(struct module *mod)
         break;
     }
 
-    const char *tag_identity_value = m->identity;
     const char *tag_loop_value = (property->loop_status == NULL) ? "" : property->loop_status;
     const char *tag_album_value = (metadata.album == NULL) ? "" : metadata.album;
     const char *tag_artists_value = (metadata.album == NULL) ? "" : metadata.artists;
@@ -485,8 +466,7 @@ content(struct module *mod)
     struct tag_set tags = {
         .tags = (struct tag *[]){
             tag_new_string(mod, "state", tag_state_value),
-            tag_new_string(mod, "identity", tag_identity_value),
-            tag_new_bool(mod, "random", tag_shuffle_value),
+            tag_new_bool(mod, "shuffle", tag_shuffle_value),
             tag_new_string(mod, "loop", tag_loop_value),
             tag_new_int_range(mod, "volume", tag_volume_value, 0, 100),
             tag_new_string(mod, "album", tag_album_value),
@@ -495,9 +475,9 @@ content(struct module *mod)
             tag_new_string(mod, "pos", tag_pos_value),
             tag_new_string(mod, "end", tag_end_value),
             tag_new_int_realtime(
-                mod, "elapsed", elapsed_usec / 1000 / 1000, 0, length_usec / 1000 / 1000, TAG_REALTIME_SECS),
+                mod, "elapsed", elapsed_us / 1000 / 1000, 0, length_us / 1000 / 1000, TAG_REALTIME_SECS),
         },
-        .count = 11,
+        .count = 10,
     };
 
     mtx_unlock(&mod->lock);
@@ -572,12 +552,6 @@ update_status(struct module *mod)
         dbus_message_iter_next(&dict_iter);
     }
 
-    // FIXME
-    if (!m->client.has_seeked_support) {
-        clock_gettime(CLOCK_MONOTONIC, &m->client.elapsed.when);
-        m->client.elapsed.value_usec = m->client.property.position_usec;
-    }
-
     mtx_unlock(&mod->lock);
 
     return true;
@@ -594,10 +568,9 @@ update_status_from_message(struct module *mod, DBusMessage *message)
         m->client.has_seeked_support = true;
         DBusMessageIter iter = {0};
         dbus_message_iter_init(message, &iter);
-        dbus_message_iter_get_basic(&iter, &m->client.property.position_usec);
+        dbus_message_iter_get_basic(&iter, &m->client.property.position_us);
 
-        clock_gettime(CLOCK_MONOTONIC, &m->client.elapsed.when);
-        m->client.elapsed.value_usec = m->client.property.position_usec;
+        clock_gettime(CLOCK_MONOTONIC, &m->client.seeked_when);
 
         return true;
     }
@@ -657,11 +630,14 @@ update_status_from_message(struct module *mod, DBusMessage *message)
             if (strcmp(m->client.property.playback_status, "Stopped") == 0) {
                 m->client.status = MPRIS_STATUS_STOPPED;
             } else if (strcmp(m->client.property.playback_status, "Playing") == 0) {
+                clock_gettime(CLOCK_MONOTONIC, &m->client.seeked_when);
                 m->client.status = MPRIS_STATUS_PLAYING;
             } else if (strcmp(m->client.property.playback_status, "Paused") == 0) {
+                /* Update our position to include the elapsed time */
+                struct timespec now;
+                clock_gettime(CLOCK_MONOTONIC, &now);
                 m->client.status = MPRIS_STATUS_PAUSED;
-            } else {
-                m->client.status = MPRIS_STATUS_OFFLINE;
+                m->client.property.position_us += timespec_diff_us(&now, &m->client.seeked_when);
             }
         }
 
@@ -692,7 +668,8 @@ listener_event_handle_name_owner_changed(DBusConnection *connection, DBusMessage
         return;
     }
 
-    /*LOG_DBG("listener: 'NameOwnerChanged': bus_name: '%s' old_owner: '%s' new_ower: '%s'", bus_name, old_owner, new_owner);*/
+    /*LOG_DBG("listener: 'NameOwnerChanged': bus_name: '%s' old_owner: '%s' new_ower: '%s'", bus_name, old_owner,
+     * new_owner);*/
 
     if (strcmp(bus_name, listener->bus_name_unique) != 0) {
         return;
@@ -717,7 +694,6 @@ listener_event_handle_name_owner_changed(DBusConnection *connection, DBusMessage
     /* Name changed */
     LOG_DBG("listener: 'NameOwnerChanged': Name changed from '%s' to '%s'", old_owner, new_owner);
     assert(listener->bus_name_unique != NULL);
-
     free(listener->bus_name_unique);
     listener->bus_name_unique = strdup(new_owner);
 }
@@ -898,7 +874,7 @@ refresh_in_thread(void *arg)
     long milli_seconds = ctx->milli_seconds;
     free(ctx);
 
-    /*LOG_DBG("going to sleep for %ldms", milli_seconds);*/
+    LOG_DBG("going to sleep for %ldms", milli_seconds);
 
     /* Wait for timeout, or abort signal */
     struct pollfd fds[] = {{.fd = abort_fd, .events = POLLIN}};
@@ -912,11 +888,11 @@ refresh_in_thread(void *arg)
     /* Aborted? */
     if (r == 1) {
         assert(fds[0].revents & POLLIN);
-        /*LOG_DBG("refresh thread aborted");*/
+        LOG_DBG("refresh thread aborted");
         return 0;
     }
 
-    /*LOG_DBG("timed refresh");*/
+    LOG_DBG("timed refresh");
     mod->bar->refresh(mod->bar);
 
     return 0;
@@ -929,7 +905,7 @@ refresh_in(struct module *mod, long milli_seconds)
 
     /* Abort currently running refresh thread */
     if (m->refresh_thread_id != 0) {
-        /*LOG_DBG("aborting current refresh thread");*/
+        LOG_DBG("aborting current refresh thread");
 
         /* Signal abort to thread */
         assert(m->refresh_abort_fd != -1);
@@ -977,6 +953,8 @@ refresh_in(struct module *mod, long milli_seconds)
     return r == 0;
 }
 
+
+
 static int
 run(struct module *mod)
 {
@@ -1006,7 +984,7 @@ run(struct module *mod)
     bool aborted = false;
     while (ret == 0 && !aborted) {
         const uint32_t timeout_ms = 50;
-        struct pollfd fds[] = {{.fd = mod->abort_fd, .events = POLLIN}, {.fd = m->listener_fd, .events = POLLIN}};
+        struct pollfd fds[] = {{.fd = mod->abort_fd, .events = POLLIN}};
 
         /* Check for abort event */
         if (poll(fds, 1, timeout_ms) < 0) {
@@ -1022,7 +1000,7 @@ run(struct module *mod)
             break;
         }
 
-        /* Listen for new bus names, until we find a vaild match */
+        /* Listen for name registrations that match our target identity */
         if (!listener->has_target) {
             listener_poll(listener, MPRIS_LISTENER_TIMEOUT);
 
@@ -1048,7 +1026,7 @@ run(struct module *mod)
 
         while (ret == 0 && !aborted && listener->has_target) {
             const uint32_t timeout_ms = 50;
-            struct pollfd fds[] = {{.fd = mod->abort_fd, .events = POLLIN}, {.fd = m->listener_fd, .events = POLLIN}};
+            struct pollfd fds[] = {{.fd = mod->abort_fd, .events = POLLIN}};
 
             /* Check for abort event */
             if (poll(fds, 1, timeout_ms) < 0) {
@@ -1100,9 +1078,9 @@ run(struct module *mod)
     dbus_connection_close(m->connection);
     dbus_connection_close(listener->connection);
 
-    if(listener->bus_name_unique != NULL)
+    if (listener->bus_name_unique != NULL)
         free(listener->bus_name_unique);
-    if(listener->bus_name != NULL)
+    if (listener->bus_name != NULL)
         free(listener->bus_name);
     free(listener);
 
