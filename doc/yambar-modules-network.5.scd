@@ -21,6 +21,16 @@ address per network interface.
 |  name
 :  string
 :  Network interface name
+|  type
+:  string
+:  Interface type (*ether*, *wlan*, *loopback*, or *ARPHRD_NNN*, where
+   *N* is a number).
+|  kind
+:  string
+:  Interface kind. Empty for non-virtual interfaces. For virtual
+   interfaces, this value is taken from the _IFLA\_INFO\_KIND_ netlink
+   attribute. Examples of valid values are *bond*, *bridge*, *gre*, *tun*
+   and *veth*.
 |  index
 :  int
 :  Network interface index
@@ -91,17 +101,23 @@ address per network interface.
 
 # EXAMPLES
 
+Display all Ethernet (including WLAN) devices. This excludes loopback,
+bridges etc.
+
 ```
 bar:
   left:
     - network:
         content:
           map:
-            default:
-              string: {text: "{name}: {state} ({ipv4})"}
             conditions:
-              ipv4 == "":
-                string: {text: "{name}: {state}"}
+              type == ether || type == wlan:
+                map:
+                  default:
+                    string: {text: "{name}: {state} ({ipv4})"}
+                  conditions:
+                    ipv4 == "":
+                      string: {text: "{name}: {state}"}
 ```
 
 # SEE ALSO

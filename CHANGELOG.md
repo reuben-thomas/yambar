@@ -16,8 +16,16 @@
 ### Added
 
 * environment variable substitution in config files ([#96][96]).
+* Log output now respects the [`NO_COLOR`](http://no-color.org/)
+  environment variable.
+* network: `type` tag ([#380][380]).
+* network: `type`  and `kind` tags ([#380][380]).
+* tags: `b` tag formatter; divides the tag's decimal value with `8`
+  ([#392][392]).
 
 [96]: https://codeberg.org/dnkl/yambar/issues/96
+[380]: https://codeberg.org/dnkl/yambar/issues/380
+[392]: https://codeberg.org/dnkl/yambar/issues/392
 
 
 ### Changed
@@ -34,6 +42,8 @@
 
 * network: fix missing break in switch statement ([#377][377]).
 * i3/sway: crash when output is turned off an on ([#300][300]).
+* mpd: yambar never attempting to reconnect after MPD closed the
+  connection (for example, when MPD is restarted).
 
 [377]: https://codeberg.org/dnkl/yambar/issues/377
 [300]: https://codeberg.org/dnkl/yambar/issues/300
