@@ -475,7 +475,7 @@ content(struct module *mod)
             tag_new_string(mod, "pos", tag_pos_value),
             tag_new_string(mod, "end", tag_end_value),
             tag_new_int_realtime(
-                mod, "elapsed", elapsed_us / 1000 / 1000, 0, length_us / 1000 / 1000, TAG_REALTIME_SECS),
+                mod, "elapsed", elapsed_us / 1000, 0, length_us / 1000, TAG_REALTIME_SECS),
         },
         .count = 10,
     };
@@ -874,7 +874,7 @@ refresh_in_thread(void *arg)
     long milli_seconds = ctx->milli_seconds;
     free(ctx);
 
-    LOG_DBG("going to sleep for %ldms", milli_seconds);
+    /*LOG_DBG("going to sleep for %ldms", milli_seconds);*/
 
     /* Wait for timeout, or abort signal */
     struct pollfd fds[] = {{.fd = abort_fd, .events = POLLIN}};
@@ -888,7 +888,7 @@ refresh_in_thread(void *arg)
     /* Aborted? */
     if (r == 1) {
         assert(fds[0].revents & POLLIN);
-        LOG_DBG("refresh thread aborted");
+        /*LOG_DBG("refresh thread aborted");*/
         return 0;
     }
 
@@ -905,7 +905,7 @@ refresh_in(struct module *mod, long milli_seconds)
 
     /* Abort currently running refresh thread */
     if (m->refresh_thread_id != 0) {
-        LOG_DBG("aborting current refresh thread");
+        /*LOG_DBG("aborting current refresh thread");*/
 
         /* Signal abort to thread */
         assert(m->refresh_abort_fd != -1);
@@ -1109,13 +1109,13 @@ static struct module *
 from_conf(const struct yml_node *node, struct conf_inherit inherited)
 {
     const struct yml_node *identity_node = yml_get_value(node, "identity");
-    const struct yml_node *poll_node = yml_get_value(node, "poll");
+    const struct yml_node *query_node = yml_get_value(node, "query-timeout");
     const struct yml_node *c_node = yml_get_value(node, "content");
 
     const char *identity = yml_value_as_string(identity_node);
-    const uint32_t poll = (poll_node != NULL) ? yml_value_as_int(poll_node) : 500;
+    const uint32_t query = (query_node) ? yml_value_as_int(query_node) : 500;
 
-    return mpris_new(identity, poll, conf_to_particle(c_node, inherited));
+    return mpris_new(identity, query, conf_to_particle(c_node, inherited));
 }
 
 static bool
@@ -1123,7 +1123,7 @@ verify_conf(keychain_t *chain, const struct yml_node *node)
 {
     static const struct attr_info attrs[] = {
         {"identity", true, &conf_verify_string},
-        {"poll", false, &conf_verify_unsigned},
+        {"query-timeout", false, &conf_verify_unsigned},
         MODULE_COMMON_ATTRS,
     };
 
