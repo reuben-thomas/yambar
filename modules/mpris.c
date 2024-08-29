@@ -1056,7 +1056,7 @@ run(struct module *mod)
                 continue;
             }
 
-            /* Process dynamic updates, recieved through the listener/the
+            /* Process dynamic updates, revieved through the listener/the
              * 'PropertiesChanged' signal */
             if (listener->has_update) {
                 listener->has_update = false;
