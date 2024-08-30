@@ -379,9 +379,7 @@ destroy(struct module *mod)
     dbus_connection_close(m->connection);
 
     free((void *)m->identity);
-    free((void *)m->client.bus_name);
-
-    mpris_reset_client(&m->client);
+    free(m->client.bus_name);
 
     m->label->destroy(m->label);
 
@@ -462,6 +460,8 @@ content(struct module *mod)
     const char *tag_title_value = (metadata.album == NULL) ? "" : metadata.title;
     const uint32_t tag_volume_value = (property->volume >= 0.995) ? 100 : 100 * property->volume;
     const bool tag_shuffle_value = property->shuffle;
+    const enum tag_realtime_unit realtime_unit
+        = (client->status == MPRIS_STATUS_PLAYING) ? TAG_REALTIME_SECS : TAG_REALTIME_NONE;
 
     struct tag_set tags = {
         .tags = (struct tag *[]){
@@ -475,7 +475,7 @@ content(struct module *mod)
             tag_new_string(mod, "pos", tag_pos_value),
             tag_new_string(mod, "end", tag_end_value),
             tag_new_int_realtime(
-                mod, "elapsed", elapsed_us / 1000, 0, length_us / 1000, TAG_REALTIME_SECS),
+                mod, "elapsed", elapsed_us / 1000, 0, length_us / 1000, realtime_unit),
         },
         .count = 10,
     };
@@ -552,6 +552,10 @@ update_status(struct module *mod)
         dbus_message_iter_next(&dict_iter);
     }
 
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    m->client.seeked_when = now;
+
     mtx_unlock(&mod->lock);
 
     return true;
@@ -612,6 +616,9 @@ update_status_from_message(struct module *mod, DBusMessage *message)
         return true;
     }
 
+    /* Make sure we reset the position on metadata change unless the
+     * update contains its own position value */
+    bool should_reset_position = true;
     while ((current_type = dbus_message_iter_get_arg_type(&changed_properties_iter)) != DBUS_TYPE_INVALID) {
         DBusMessageIter dict_iter = {0};
         dbus_message_iter_recurse(&changed_properties_iter, &dict_iter);
@@ -639,6 +646,14 @@ update_status_from_message(struct module *mod, DBusMessage *message)
                 m->client.status = MPRIS_STATUS_PAUSED;
                 m->client.property.position_us += timespec_diff_us(&now, &m->client.seeked_when);
             }
+        }
+
+        if (strcmp(property_name, "Metadata") == 0 && should_reset_position) {
+            m->client.property.position_us = 0;
+        }
+
+        if (strcmp(property_name, "Position") == 0) {
+            should_reset_position = false;
         }
 
         dbus_message_iter_next(&changed_properties_iter);
@@ -892,7 +907,7 @@ refresh_in_thread(void *arg)
         return 0;
     }
 
-    LOG_DBG("timed refresh");
+    /*LOG_DBG("timed refresh");*/
     mod->bar->refresh(mod->bar);
 
     return 0;
@@ -952,8 +967,6 @@ refresh_in(struct module *mod, long milli_seconds)
     // thrd_detach(tid);
     return r == 0;
 }
-
-
 
 static int
 run(struct module *mod)
@@ -1074,7 +1087,6 @@ run(struct module *mod)
         }
     }
 
-    mpris_reset_client(&m->client);
     dbus_connection_close(m->connection);
     dbus_connection_close(listener->connection);
 
