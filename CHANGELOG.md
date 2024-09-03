@@ -24,10 +24,12 @@
   ([#392][392]).
 * i3/sway: `output` tag, reflecting the output (monitor) a workspace
   is on.
+* niri: add a new module for niri-workspaces and niri-language ([#405][405]).
 
 [96]: https://codeberg.org/dnkl/yambar/issues/96
 [380]: https://codeberg.org/dnkl/yambar/issues/380
 [392]: https://codeberg.org/dnkl/yambar/issues/392
+[405]: https://codeberg.org/dnkl/yambar/issues/405
 
 
 ### Changed
