@@ -176,9 +176,9 @@ client_lookup_by_unique_name(struct mpris_context *context, const char *unique_n
     tll_foreach(context->clients, it)
     {
         struct mpris_client *client = it->item;
-        LOG_DBG("client_lookup: client '%s' against '%s'", client->bus_unique_name, unique_name);
+        /*LOG_DBG("client_lookup: client '%s' against '%s'", client->bus_unique_name, unique_name);*/
         if (strcmp(client->bus_unique_name, unique_name) == 0) {
-            LOG_DBG("client_lookup: got client with unique name: %s", client->bus_unique_name);
+            LOG_DBG("client_lookup: unique name: %s", client->bus_unique_name);
             return client;
         }
     }
@@ -697,6 +697,7 @@ update_status_from_message(struct module *mod, DBusMessage *message)
         current_type = dbus_message_iter_get_arg_type(&dict_iter);
         assert(dbus_message_iter_get_arg_type(&dict_iter) == DBUS_TYPE_VARIANT);
 
+        LOG_DBG("update_status: reding property: %s", property_name);
         mpris_property_parse(&client->property, property_name, &dict_iter);
 
         if (strcmp(property_name, "PlaybackStatus") == 0) {
@@ -834,7 +835,7 @@ content(struct module *mod)
     const uint32_t tag_volume_value = (property->volume >= 0.995) ? 100 : 100 * property->volume;
     const bool tag_shuffle_value = property->shuffle;
     const enum tag_realtime_unit realtime_unit = (client->has_seeked_support && client->status == MPRIS_STATUS_PLAYING)
-                                                     ? TAG_REALTIME_SECS
+                                                     ? TAG_REALTIME_MSECS
                                                      : TAG_REALTIME_NONE;
 
     struct tag_set tags = {
@@ -852,7 +853,7 @@ content(struct module *mod)
             tag_new_int_realtime(
                 mod, "elapsed", elapsed_us, 0, length_us, realtime_unit),
         },
-        .count = 10,
+        .count = 11,
     };
 
     mtx_unlock(&mod->lock);
@@ -898,7 +899,7 @@ refresh_in_thread(void *arg)
         return 0;
     }
 
-    /*LOG_DBG("timed refresh");*/
+    LOG_DBG("timed refresh");
     mod->bar->refresh(mod->bar);
 
     return 0;
