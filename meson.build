@@ -4,13 +4,15 @@ project('yambar', 'c',
         meson_version: '>=0.59.0',
         default_options: ['c_std=c18',
                           'warning_level=1',
-                          'werror=true',
                           'b_ndebug=if-release'])
 
 is_debug_build = get_option('buildtype').startswith('debug')
 plugs_as_libs = get_option('core-plugins-as-shared-libraries')
 
 cc = meson.get_compiler('c')
+cc_flags = [
+  '-Werror=all'
+  ]
 
 if cc.has_function('memfd_create',
                    args: ['-D_GNU_SOURCE=200809L'],
@@ -75,7 +77,12 @@ backend_wayland = wayland_client.found() and wayland_cursor.found()
 tllist = dependency('tllist', version: '>=1.0.1', fallback: 'tllist')
 fcft = dependency('fcft', version: ['>=3.0.0', '<4.0.0'], fallback: 'fcft')
 
+# DBus dependency. Used by 'modules/mpris'
+dbus = dependency('libsystemd', version: '>=221', fallback: 'basu')
+# dbus = dependency('basu')
+
 add_project_arguments(
+  cc_flags +
   ['-D_GNU_SOURCE'] +
   (is_debug_build ? ['-D_DEBUG'] : []) +
   (backend_x11 ? ['-DENABLE_X11'] : []) +

@@ -22,8 +22,8 @@ plugin_mem_enabled = get_option('plugin-mem').allowed()
 mpd = dependency('libmpdclient', required: get_option('plugin-mpd'))
 plugin_mpd_enabled = mpd.found()
 
-mpris = dependency('dbus-1', required: get_option('plugin-mpris'))
-plugin_mpris_enabled = mpris.found()
+mpris = dbus
+plugin_mpris_enabled = dbus.found()
 
 json_i3 = dependency('json-c', required: get_option('plugin-i3'))
 plugin_i3_enabled = json_i3.found()
