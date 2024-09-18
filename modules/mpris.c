@@ -1125,5 +1125,5 @@ const struct module_iface module_mpris_iface = {
 };
 
 #if defined(CORE_PLUGINS_AS_SHARED_LIBRARIES)
-extern const struct module_mpris_iface iface __attribute__((weak, alias("module_iface")));
+extern const struct module_iface iface __attribute__((weak, alias("module_mpris_iface")));
 #endif
