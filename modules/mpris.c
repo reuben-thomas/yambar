@@ -13,7 +13,7 @@
 
 #include <sys/eventfd.h>
 
-#include <systemd/sd-bus.h>
+#include "dbus.h"
 
 #define LOG_MODULE "mpris"
 #define LOG_ENABLE_DBG 1
