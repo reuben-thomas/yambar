@@ -54,8 +54,9 @@ types that are frequently used:
 |  layer
 :  string
 :  no
-:  Layer to put bar on. One of _overlay_, _top_, _bottom_ or
-   _background_. Wayland only. Default: _bottom_.
+:  Layer to put bar on. One of _overlay_, _top_, _bottom_, _bottom_ or
+   _hidden_. Wayland only. Default: _bottom_. If set to _hidden_, will move
+   between _overlay_ and _bottom_ when receives respectively SIGUSR1 or SIGUSR2.
 |  left-spacing
 :  int
 :  no

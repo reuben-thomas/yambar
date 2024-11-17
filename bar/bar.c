@@ -177,6 +177,18 @@ set_cursor(struct bar *bar, const char *cursor)
     b->backend.iface->set_cursor(bar, cursor);
 }
 
+static void
+set_visible(struct bar *bar, bool visible)
+{
+    struct private *b = bar->private;
+
+    if (b->layer != BAR_LAYER_HIDDEN)
+       return;
+
+    b->visible = visible;
+    bar->refresh(bar);
+}
+
 static const char *
 output_name(const struct bar *bar)
 {
@@ -446,6 +458,7 @@ bar_new(const struct bar_config *config)
     struct private *priv = calloc(1, sizeof(*priv));
     priv->monitor = config->monitor != NULL ? strdup(config->monitor) : NULL;
     priv->layer = config->layer;
+    priv->visible = false;
     priv->location = config->location;
     priv->height = config->height;
     priv->background = config->background;
@@ -488,6 +501,7 @@ bar_new(const struct bar_config *config)
     bar->destroy = &destroy;
     bar->refresh = &refresh;
     bar->set_cursor = &set_cursor;
+    bar->set_visible = &set_visible;
     bar->output_name = &output_name;
 
     for (size_t i = 0; i < priv->left.count; i++)

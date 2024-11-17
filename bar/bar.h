@@ -12,13 +12,14 @@ struct bar {
     void (*destroy)(struct bar *bar);
 
     void (*refresh)(const struct bar *bar);
+    void (*set_visible)(struct bar *bar, bool visible);
     void (*set_cursor)(struct bar *bar, const char *cursor);
 
     const char *(*output_name)(const struct bar *bar);
 };
 
 enum bar_location { BAR_TOP, BAR_BOTTOM };
-enum bar_layer { BAR_LAYER_OVERLAY, BAR_LAYER_TOP, BAR_LAYER_BOTTOM, BAR_LAYER_BACKGROUND };
+enum bar_layer { BAR_LAYER_OVERLAY, BAR_LAYER_TOP, BAR_LAYER_BOTTOM, BAR_LAYER_BACKGROUND, BAR_LAYER_HIDDEN };
 enum bar_backend { BAR_BACKEND_AUTO, BAR_BACKEND_XCB, BAR_BACKEND_WAYLAND };
 
 struct bar_config {

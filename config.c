@@ -325,6 +325,8 @@ conf_to_bar(const struct yml_node *bar, enum bar_backend backend)
             conf.layer = BAR_LAYER_BOTTOM;
         else if (strcmp(tmp, "background") == 0)
             conf.layer = BAR_LAYER_BACKGROUND;
+        else if (strcmp(tmp, "hidden") == 0)
+            conf.layer = BAR_LAYER_HIDDEN;
         else
             assert(false);
     }

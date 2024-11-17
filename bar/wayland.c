@@ -651,7 +651,7 @@ handle_global(void *data, struct wl_registry *registry, uint32_t name, const cha
     }
 
     else if (strcmp(interface, zwlr_layer_shell_v1_interface.name) == 0) {
-        const uint32_t required = 1;
+        const uint32_t required = 2;
         if (!verify_iface_version(interface, version, required))
             return;
 
@@ -773,6 +773,7 @@ create_surface(struct wayland_backend *backend)
         break;
 
     case BAR_LAYER_BOTTOM:
+    case BAR_LAYER_HIDDEN:
         layer = ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM;
         break;
 
@@ -1025,10 +1026,12 @@ update_size(struct wayland_backend *backend)
     bar->height_with_border = height;
 
     zwlr_layer_surface_v1_set_size(backend->layer_surface, 0, bar->height_with_border / scale);
-    zwlr_layer_surface_v1_set_exclusive_zone(
-        backend->layer_surface,
-        (bar->height_with_border + (bar->location == BAR_TOP ? bar->border.bottom_margin : bar->border.top_margin))
+    if (bar->layer != BAR_LAYER_HIDDEN) {
+        zwlr_layer_surface_v1_set_exclusive_zone(
+            backend->layer_surface,
+            (bar->height_with_border + (bar->location == BAR_TOP ? bar->border.bottom_margin : bar->border.top_margin))
             / scale);
+    }
 
     zwlr_layer_surface_v1_set_margin(backend->layer_surface, bar->border.top_margin / scale,
                                      bar->border.right_margin / scale, bar->border.bottom_margin / scale,
@@ -1243,8 +1246,14 @@ loop(struct bar *_bar, void (*expose)(const struct bar *bar),
             }
 
             LOG_DBG("coalesced %zu expose commands", count);
-            if (do_expose)
+            if (bar->layer == BAR_LAYER_HIDDEN) {
+              zwlr_layer_surface_v1_set_layer(
+                  backend->layer_surface,
+                  (bar->visible) ? ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY : ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM);
+            }
+            if (do_expose) {
                 expose(_bar);
+            }
         }
 
         if (fds[1].revents & POLLIN) {

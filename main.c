@@ -27,11 +27,18 @@
 #include "version.h"
 
 static volatile sig_atomic_t aborted = 0;
+static volatile sig_atomic_t sigusr = 0;
 
 static void
 signal_handler(int signo)
 {
     aborted = signo;
+}
+
+static void
+sigusr_handler(int signo)
+{
+    sigusr = signo;
 }
 
 static char *
@@ -295,12 +302,18 @@ main(int argc, char *const *argv)
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
 
+    const struct sigaction sau = {.sa_handler = &sigusr_handler};
+    sigaction(SIGUSR1, &sau, NULL);
+    sigaction(SIGUSR2, &sau, NULL);
+
     /* Block SIGINT (this is under the assumption that threads inherit
      * the signal mask */
     sigset_t signal_mask;
     sigemptyset(&signal_mask);
     sigaddset(&signal_mask, SIGINT);
     sigaddset(&signal_mask, SIGTERM);
+    sigaddset(&signal_mask, SIGUSR1);
+    sigaddset(&signal_mask, SIGUSR2);
     pthread_sigmask(SIG_BLOCK, &signal_mask, NULL);
 
     int abort_fd = eventfd(0, EFD_CLOEXEC);
@@ -354,6 +367,10 @@ main(int argc, char *const *argv)
         struct pollfd fds[] = {{.fd = abort_fd, .events = POLLIN}};
         int r __attribute__((unused)) = poll(fds, sizeof(fds) / sizeof(fds[0]), -1);
 
+        if (sigusr) {
+            bar->set_visible(bar, (sigusr == SIGUSR1));
+            sigusr = 0;
+        }
         if (fds[0].revents & (POLLIN | POLLHUP)) {
             /*
              * Either the bar aborted (triggering the abort_fd), or user
