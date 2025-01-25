@@ -20,12 +20,22 @@
   environment variable.
 * network: `type` tag ([#380][380]).
 * network: `type`  and `kind` tags ([#380][380]).
-* tags: `b` tag formatter; divides the tag's decimal value with `8`
+* tags: `/<N>` tag formatter: divides the tag's decimal value with `N`
   ([#392][392]).
+* i3/sway: `output` tag, reflecting the output (monitor) a workspace
+  is on.
+* Added "string like" `~~` operator to Map particle. Allows glob-style
+  matching on strings using `*` and `?` characters ([#400][400]).
+* Added "single" mode flag to the `mpd` module ([#428][428]).
+* niri: add a new module for niri-workspaces and niri-language
+  ([#404][404]).
 
 [96]: https://codeberg.org/dnkl/yambar/issues/96
 [380]: https://codeberg.org/dnkl/yambar/issues/380
 [392]: https://codeberg.org/dnkl/yambar/issues/392
+[400]: https://codeberg.org/dnkl/yambar/pulls/400
+[428]: https://codeberg.org/dnkl/yambar/pulls/428
+[404]: https://codeberg.org/dnkl/yambar/issues/404
 
 
 ### Changed
@@ -44,9 +54,12 @@
 * i3/sway: crash when output is turned off an on ([#300][300]).
 * mpd: yambar never attempting to reconnect after MPD closed the
   connection (for example, when MPD is restarted).
+* Bar positioning on multi-monitor setups, when `location=bottom`.
+* pipewire: Improve handling of node switching ([#424][424]).
 
 [377]: https://codeberg.org/dnkl/yambar/issues/377
 [300]: https://codeberg.org/dnkl/yambar/issues/300
+[424]: https://codeberg.org/dnkl/yambar/pulls/424
 
 
 ### Security

@@ -155,7 +155,7 @@ content:
 
 This particle is a list (or sequence, if you like) of other
 particles. It can be used to render e.g. _string_ particles with
-different font and/or color formatting. Or ay other particle
+different font and/or color formatting. Or any other particle
 combinations.
 
 But note that this means you *cannot* set any attributes on the _list_
@@ -264,6 +264,26 @@ To match for empty strings, use ' "" ':
 ```
 <tag> == ""
 ```
+
+String glob matching
+
+To perform string matching using globbing with "\*" & "?" characters:
+\* Match any zero or more characters.  ? Match exactly any one
+character.
+
+```
+<tag> ~~ "hello*"
+```
+
+Will match any string starting with "hello", including "hello",
+"hello1", "hello123", etc.
+
+```
+<tag> ~~ "hello?"
+```
+
+Will match any string starting with "hello" followed by any single
+character, including "hello1", "hello-", but not "hello".
 
 Furthermore, you may use the boolean operators:
 
@@ -456,7 +476,7 @@ itself when needed.
 
 ```
 content:
-  progres-bar:
+  progress-bar:
     tag: tag_name
     length: 20
     start: {string: {text: ├}}

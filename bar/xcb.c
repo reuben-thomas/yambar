@@ -101,7 +101,7 @@ setup(struct bar *_bar)
         backend->x = mon->x;
         backend->y = mon->y;
         bar->width = mon->width;
-        backend->y += bar->location == BAR_TOP ? 0 : screen->height_in_pixels - bar->height_with_border;
+        backend->y += bar->location == BAR_TOP ? 0 : mon->height - bar->height_with_border;
 
         found_monitor = true;
 
@@ -369,7 +369,7 @@ refresh(const struct bar *_bar)
 
     /* Send an event to handle refresh from main thread */
 
-    /* Note: docs say that all X11 events are 32 bytes, reglardless of
+    /* Note: docs say that all X11 events are 32 bytes, regardless of
      * the size of the event structure */
     xcb_expose_event_t *evt = calloc(32, 1);
 
