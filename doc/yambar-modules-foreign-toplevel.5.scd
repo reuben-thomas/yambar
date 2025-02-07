@@ -70,7 +70,7 @@ bar:
             conditions:
               ~activated: {empty: {}}
               activated:
-                - string: {text: "{app-id}: {title}"}
+                - string: {string: {text: "{app-id}: {title}"}}
 ```
 
 # SEE ALSO
