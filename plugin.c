@@ -93,6 +93,9 @@ EXTERN_MODULE(niri_language);
 #if defined(HAVE_PLUGIN_niri_workspaces)
 EXTERN_MODULE(niri_workspaces);
 #endif
+#if defined(HAVE_PLUGIN_weather)
+EXTERN_MODULE(weather);
+#endif
 #if defined(HAVE_PLUGIN_xkb)
 EXTERN_MODULE(xkb);
 #endif
@@ -231,6 +234,9 @@ static void __attribute__((constructor)) init(void)
 #endif
 #if defined(HAVE_PLUGIN_niri_workspaces)
     REGISTER_CORE_MODULE(niri-workspaces, niri_workspaces);
+#endif
+#if defined(HAVE_PLUGIN_weather)
+    REGISTER_CORE_MODULE(weather, weather);
 #endif
 #if defined(HAVE_PLUGIN_xkb)
     REGISTER_CORE_MODULE(xkb, xkb);

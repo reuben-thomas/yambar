@@ -27,6 +27,7 @@ packages:
   - py3-pip
   - flex
   - bison
+  - curl-dev
 
 sources:
   - https://git.sr.ht/~dnkl/yambar

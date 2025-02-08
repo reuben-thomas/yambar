@@ -32,6 +32,7 @@
 * pipewire: added `spacing`, `left-spacing` and `right-spacing`
   attributes.
 * mpris: new module ([#53][53]).
+* weather: new module ([#448][448]).
 
 [96]: https://codeberg.org/dnkl/yambar/issues/96
 [380]: https://codeberg.org/dnkl/yambar/issues/380
@@ -40,6 +41,7 @@
 [428]: https://codeberg.org/dnkl/yambar/pulls/428
 [404]: https://codeberg.org/dnkl/yambar/issues/404
 [53]: https://codeberg.org/dnkl/yambar/issues/53
+[448]: https://codeberg.org/dnkl/yambar/pulls/448
 
 
 ### Changed

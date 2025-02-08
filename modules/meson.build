@@ -60,6 +60,9 @@ plugin_xkb_enabled = backend_x11 and xcb_xkb.found()
 
 plugin_xwindow_enabled = backend_x11 and get_option('plugin-xwindow').allowed()
 
+curl = dependency('libcurl', required: get_option('plugin-weather'))
+plugin_weather_enabled = curl.found() and get_option('plugin-weather').allowed()
+
 # Module name -> (source-list, dep-list)
 mod_data = {}
 
@@ -142,6 +145,14 @@ endif
 
 if plugin_niri_workspaces_enabled
   mod_data += {'niri-workspaces': [['niri-common.c', 'niri-common.h'], [dynlist, json_niri_workspaces]]}
+endif
+
+if plugin_weather_enabled
+  mod_data += {'weather': [['weather-parse.c'], [curl]]}
+
+  e = executable('test-weather', ['test-weather.c', 'weather-parse.c'],
+                 dependencies: [pixman, fcft, tllist, curl])
+  test('module-weather', e)
 endif
 
 if plugin_xkb_enabled

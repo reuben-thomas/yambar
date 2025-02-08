@@ -195,6 +195,7 @@ summary(
     'Sway XKB keyboard': plugin_sway_xkb_enabled,
     'Niri language': plugin_niri_language_enabled,
     'Niri workspaces': plugin_niri_workspaces_enabled,
+    'Weather': plugin_weather_enabled,
     'XKB keyboard (for X11)': plugin_xkb_enabled,
     'XWindow (window tracking for X11)': plugin_xwindow_enabled,
   },
