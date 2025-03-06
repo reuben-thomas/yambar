@@ -254,24 +254,31 @@ readint_from_fd(int fd)
     return ret;
 }
 
+static int
+open_battery(struct private *m)
+{
+    int pw_fd = open("/sys/class/power_supply", O_RDONLY | O_CLOEXEC);
+    if (pw_fd < 0) {
+        LOG_ERRNO("/sys/class/power_supply");
+        return -1;
+    }
+
+    int base_dir_fd = openat(pw_fd, m->battery, O_RDONLY | O_CLOEXEC);
+    if (base_dir_fd < 0)
+        LOG_ERRNO("/sys/class/power_supply/%s", m->battery);
+
+    close(pw_fd);
+    return base_dir_fd;
+}
+
 static bool
 initialize(struct private *m)
 {
     char line_buf[512];
 
-    int pw_fd = open("/sys/class/power_supply", O_RDONLY | O_CLOEXEC);
-    if (pw_fd < 0) {
-        LOG_ERRNO("/sys/class/power_supply");
+    int base_dir_fd = open_battery(m);
+    if (base_dir_fd < 0)
         return false;
-    }
-
-    int base_dir_fd = openat(pw_fd, m->battery, O_RDONLY | O_CLOEXEC);
-    close(pw_fd);
-
-    if (base_dir_fd < 0) {
-        LOG_ERRNO("/sys/class/power_supply/%s", m->battery);
-        return false;
-    }
 
     {
         int fd = openat(base_dir_fd, "manufacturer", O_RDONLY | O_CLOEXEC);
@@ -362,19 +369,9 @@ update_status(struct module *mod)
 {
     struct private *m = mod->private;
 
-    int pw_fd = open("/sys/class/power_supply", O_RDONLY | O_CLOEXEC);
-    if (pw_fd < 0) {
-        LOG_ERRNO("/sys/class/power_supply");
+    int base_dir_fd = open_battery(m);
+    if (base_dir_fd < 0)
         return false;
-    }
-
-    int base_dir_fd = openat(pw_fd, m->battery, O_RDONLY | O_CLOEXEC);
-    close(pw_fd);
-
-    if (base_dir_fd < 0) {
-        LOG_ERRNO("/sys/class/power_supply/%s", m->battery);
-        return false;
-    }
 
     int status_fd = openat(base_dir_fd, "status", O_RDONLY | O_CLOEXEC);
     if (status_fd < 0) {
