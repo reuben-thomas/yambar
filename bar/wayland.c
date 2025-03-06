@@ -10,7 +10,11 @@
 #include <unistd.h>
 
 #include <fcntl.h>
+#if defined(__FreeBSD__)
+#include <dev/evdev/input-event-codes.h>
+#else
 #include <linux/input-event-codes.h>
+#endif
 #include <sys/mman.h>
 
 #include <pixman.h>
