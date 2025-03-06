@@ -12,6 +12,11 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 
+#if defined(__FreeBSD__)
+#include <dev/acpica/acpiio.h>
+#include <sys/ioctl.h>
+#endif
+
 #include <libudev.h>
 #include <tllist.h>
 
@@ -218,6 +223,119 @@ content(struct module *mod)
     return exposable;
 }
 
+#if defined(__FreeBSD__)
+static bool
+initialize(struct private *m)
+{
+    int acpi_fd = open("/dev/acpi", O_RDONLY);
+    if (acpi_fd < 0) {
+        LOG_ERRNO("/dev/acpi");
+        return false;
+    }
+
+    long unit = 0;
+    int r = sscanf(m->battery, "%ld", &unit);
+    if (r != 1) {
+        LOG_WARN("failed to convert \"%s\" to an integer", m->battery);
+        LOG_WARN("using default unit: %ld", unit);
+    }
+
+    union acpi_battery_ioctl_arg battio;
+    battio.unit = unit;
+
+    if (ioctl(acpi_fd, ACPIIO_BATT_GET_BIX, &battio) < 0) {
+        LOG_ERRNO("ioctl");
+        goto err;
+    }
+    close(acpi_fd);
+
+    m->manufacturer       = strdup(battio.bix.oeminfo);
+    m->model              = strdup(battio.bix.model);
+    m->energy_full_design = 0;
+    m->energy_full        = 0;
+    m->charge_full_design = battio.bix.dcap;
+    m->charge_full        = battio.bix.lfcap;
+    return true;
+
+err:
+    close(acpi_fd);
+    return false;
+}
+
+static bool
+update_status(struct module *mod)
+{
+    struct private *m = mod->private;
+
+    int acpi_fd = open("/dev/acpi", O_RDONLY);
+    if (acpi_fd < 0) {
+        LOG_ERRNO("/dev/acpi");
+        return false;
+    }
+
+    long unit = 0;
+    int r = sscanf(m->battery, "%ld", &unit);
+    if (r != 1) {
+        LOG_WARN("failed to convert \"%s\" to an integer", m->battery);
+        LOG_WARN("using default unit: %ld", unit);
+    }
+
+    union acpi_battery_ioctl_arg battio;
+    battio.unit = unit;
+
+    if (ioctl(acpi_fd, ACPIIO_BATT_GET_BATTINFO, &battio) < 0) {
+        LOG_ERRNO("ioctl");
+        goto err;
+    }
+    close(acpi_fd);
+
+    enum state state = STATE_UNKNOWN;
+
+    switch (battio.battinfo.state & 0x03) {
+    case !(ACPI_BATT_STAT_CHARGING | ACPI_BATT_STAT_DISCHARG):
+        state = STATE_FULL;
+        break;
+    case ACPI_BATT_STAT_CHARGING:
+        state = STATE_CHARGING;
+        break;
+    case ACPI_BATT_STAT_DISCHARG:
+        state = STATE_DISCHARGING;
+        break;
+    default:
+        LOG_ERR("unrecognized battery state: %#x", battio.battinfo.state);
+        break;
+    }
+
+    mtx_lock(&mod->lock);
+    if (m->state != state)
+        m->ema_current = (struct current_state){-1, 0, (struct timespec){0, 0}};
+
+    m->state         = state;
+    m->capacity      = battio.battinfo.cap;
+    m->energy        = 0;
+    m->power         = 0;
+    m->charge        = 0;
+    if (battio.battinfo.rate != -1) {
+        struct timespec t;
+        clock_gettime(CLOCK_MONOTONIC, &t);
+        ema_linear(&m->ema_current,
+            (struct current_state) {
+                battio.battinfo.rate,
+                battio.battinfo.rate,
+                t,
+        },
+        m->smoothing_scale);
+    }
+    m->time_to_empty = battio.battinfo.min;
+    m->time_to_full  = 0;
+    mtx_unlock(&mod->lock);
+    return true;
+
+err:
+    close(acpi_fd);
+    return false;
+}
+#else
 static const char *
 readline_from_fd(int fd, size_t sz, char buf[static sz])
 {
@@ -475,6 +593,7 @@ update_status(struct module *mod)
     mtx_unlock(&mod->lock);
     return true;
 }
+#endif
 
 static int
 run(struct module *mod)
