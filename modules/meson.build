@@ -153,6 +153,9 @@ if plugin_weather_enabled
   e = executable('test-weather', ['test-weather.c', 'weather-parse.c'],
                  dependencies: [pixman, fcft, tllist, curl])
   test('module-weather', e)
+
+  e = executable('fuzz-weather', ['fuzz-weather.c', 'weather-parse.c'],
+                 dependencies: [pixman, fcft, tllist, curl])
 endif
 
 if plugin_xkb_enabled
