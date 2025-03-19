@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <systemd/sd-bus-protocol.h>
 #include <threads.h>
 #include <time.h>
 #include <unistd.h>
@@ -13,8 +14,6 @@
 
 #include <sys/eventfd.h>
 
-#include "dbus.h"
-
 #define LOG_MODULE "mpris"
 #define LOG_ENABLE_DBG 1
 #include "../bar/bar.h"
@@ -23,19 +22,24 @@
 #include "../log.h"
 #include "../plugin.h"
 
-#define QUERY_TIMEOUT 100
+#include "dbus.h"
+#include "yml.h"
 
-#define PATH "/org/mpris/MediaPlayer2"
-#define BUS_NAME "org.mpris.MediaPlayer2"
-#define SERVICE "org.mpris.MediaPlayer2"
-#define INTERFACE_ROOT "org.mpris.MediaPlayer2"
-#define INTERFACE_PLAYER INTERFACE_ROOT ".Player"
+#define is_empty_string(str) ((str) == NULL || (str)[0] == '\0')
+
+#define DEFAULT_QUERY_TIMEOUT_MS (500 * 1000)
+
+#define MPRIS_PATH "/org/mpris/MediaPlayer2"
+#define MPRIS_BUS_NAME "org.mpris.MediaPlayer2"
+#define MPRIS_SERVICE "org.mpris.MediaPlayer2"
+#define MPRIS_INTERFACE_PLAYER "org.mpris.MediaPlayer2.Player"
 
 #define DBUS_PATH "/org/freedesktop/DBus"
 #define DBUS_BUS_NAME "org.freedesktop.DBus"
 #define DBUS_SERVICE "org.freedesktop.DBus"
-#define DBUS_INTERFACE_MONITORING "org.freedesktop.DBus.Monitoring"
-#define DBUS_INTERFACE_PROPERTIES "org.freedesktop.DBus.Properties"
+#define DBUS_INTERFACE "org.freedesktop.DBus"
+#define DBUS_INTERFACE_MONITORING DBUS_INTERFACE ".Monitoring"
+#define DBUS_INTERFACE_PROPERTIES DBUS_INTERFACE ".Properties"
 
 enum status {
     STATUS_OFFLINE,
@@ -79,13 +83,10 @@ struct client {
 };
 
 struct context {
+    const struct private *mpd_config;
+
     sd_bus *monitor_connection;
     sd_bus_message *update_message;
-
-    /* FIXME: There is no nice way to pass the desired identities to
-     * the event handler for validation. */
-    char **identities_ref;
-    size_t identities_count;
 
     tll(struct client *) clients;
     struct client *current_client;
@@ -98,32 +99,21 @@ struct private
     thrd_t refresh_thread_id;
     int refresh_abort_fd;
 
-    size_t identities_count;
-    const char **identities;
-    struct particle *label;
-
+    size_t timeout_ms;
+    string_array identity_list;
     struct context context;
+    struct particle *label;
 };
 
-#if 0
-static void
-debug_print_argument_type(sd_bus_message *message)
-{
-    char type;
-    const char *content;
-    sd_bus_message_peek_type(message, &type, &content);
-    LOG_DBG("peek_message_type: %c -> %s", type, content);
-}
-#endif
-
-#if defined(LOG_ENABLE_DBG)
-#define dump_type(message)                                                                                             \
-    {                                                                                                                  \
-        char type;                                                                                                     \
-        const char *content;                                                                                           \
-        sd_bus_message_peek_type(message, &type, &content);                                                            \
-        LOG_DBG("argument layout: %c -> %s", type, content);                                                           \
-    }
+#if defined(LOG_ENABLE_DBG) && LOG_ENABLE_DBG
+#define debug_print_argument_type(message)                                                                             \
+    do {                                                                                                               \
+        char _type;                                                                                                    \
+        const char *_content;                                                                                          \
+        const char *_sig = sd_bus_message_get_signature((message), 0);                                                 \
+        sd_bus_message_peek_type((message), &_type, &_content);                                                        \
+        LOG_DBG("signature: %s argument type: %c -> %s", _sig, _type, _content);                                       \
+    } while (0)
 #endif
 
 static void
@@ -133,52 +123,41 @@ metadata_clear(struct metadata *metadata)
 
     if (metadata->album != NULL) {
         free(metadata->album);
+        metadata->album = NULL;
     }
 
     if (metadata->title != NULL) {
         free(metadata->title);
+        metadata->title = NULL;
     }
 
     if (metadata->trackid != NULL) {
         free(metadata->trackid);
+        metadata->trackid = NULL;
     }
-}
-
-static void
-property_clear(struct property *property)
-{
-    metadata_clear(&property->metadata);
-    memset(property, 0, sizeof(*property));
 }
 
 static void
 client_free(struct client *client)
 {
-    property_clear(&client->property);
-
     free((void *)client->bus_name);
     free((void *)client->bus_unique_name);
     free(client);
 }
 
 static void
-clients_free_by_unique_name(struct context *context, const char *unique_name)
+client_free_by_unique_name(struct context *context, const char *unique_name)
 {
     tll_foreach(context->clients, it)
     {
         struct client *client = it->item;
         if (strcmp(client->bus_unique_name, unique_name) == 0) {
             LOG_DBG("client_remove: Removing client %s", client->bus_name);
+
             client_free(client);
             tll_remove(context->clients, it);
         }
     }
-}
-
-static void
-client_free_all(struct context *context)
-{
-    tll_free_and_free(context->clients, client_free);
 }
 
 static void
@@ -220,16 +199,17 @@ client_change_unique_name(struct client *client, const char *new_name)
 }
 
 static bool
-verify_bus_name(char **idents, const size_t ident_count, const char *name)
+verify_bus_name(const string_array *identity_list, const char *name)
 {
-    for (size_t i = 0; i < ident_count; i++) {
-        const char *ident = idents[i];
+    tll_foreach(*identity_list, it)
+    {
+        const char *ident = it->item;
 
-        if (strlen(name) < strlen(BUS_NAME ".") + strlen(ident)) {
+        if (strlen(name) < strlen(MPRIS_BUS_NAME ".") + strlen(ident)) {
             continue;
         }
 
-        const char *cmp = name + strlen(BUS_NAME ".");
+        const char *cmp = name + strlen(MPRIS_BUS_NAME ".");
         if (strncmp(cmp, ident, strlen(ident)) != 0) {
             continue;
         }
@@ -259,7 +239,7 @@ read_string_array(sd_bus_message *message, string_array *list)
 
     const char *string;
     while ((status = sd_bus_message_read_basic(message, SD_BUS_TYPE_STRING, &string)) > 0) {
-        if (strlen(string) > 0) {
+        if (!is_empty_string(string)) {
             tll_push_back(*list, strdup(string));
         }
     }
@@ -287,20 +267,19 @@ metadata_parse_property(const char *property_name, sd_bus_message *message, stru
     const char *argument_layout = NULL;
     sd_bus_message_peek_type(message, &argument_type, &argument_layout);
     assert(argument_type == SD_BUS_TYPE_VARIANT);
-    assert(argument_layout != NULL && strlen(argument_layout) > 0);
+    assert(!is_empty_string(argument_layout));
 
     if (strcmp(property_name, "mpris:trackid") == 0) {
         if (argument_layout[0] != SD_BUS_TYPE_STRING && argument_layout[0] != SD_BUS_TYPE_OBJECT_PATH)
             goto unexpected_type;
 
         status = sd_bus_message_read(message, "v", argument_layout, &string);
-        if (status > 0)
+        if (status > 0 && !is_empty_string(string))
             buffer->trackid = strdup(string);
 
-        /* FIXME: "strcmp matches both 'album' as well as 'albumArtist'" */
     } else if (strcmp(property_name, "xesam:album") == 0) {
         status = sd_bus_message_read(message, "v", argument_layout, &string);
-        if (status > 0 && strlen(string) > 0)
+        if (status > 0 && !is_empty_string(string))
             buffer->album = strdup(string);
 
     } else if (strcmp(property_name, "xesam:artist") == 0) {
@@ -308,7 +287,7 @@ metadata_parse_property(const char *property_name, sd_bus_message *message, stru
 
     } else if (strcmp(property_name, "xesam:title") == 0) {
         status = sd_bus_message_read(message, "v", "s", &string);
-        if(status > 0)
+        if (status > 0 && !is_empty_string(string))
             buffer->title = strdup(string);
 
     } else if (strcmp(property_name, "mpris:length") == 0) {
@@ -340,12 +319,7 @@ unexpected_type:
 static bool
 metadata_parse_array(struct metadata *metadata, sd_bus_message *message)
 {
-    int status = sd_bus_message_enter_container(message, SD_BUS_TYPE_VARIANT, "a{sv}");
-    if (status <= 0) {
-        LOG_DBG("unexpected layout: errno=%d (%s)", status, strerror(-status));
-        return false;
-    }
-    status = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+    int status = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
     assert(status >= 0);
 
     while ((status = sd_bus_message_enter_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv")) > 0) {
@@ -367,8 +341,6 @@ metadata_parse_array(struct metadata *metadata, sd_bus_message *message)
 
     /* close array */
     sd_bus_message_exit_container(message);
-    /* close variant */
-    sd_bus_message_exit_container(message);
 
     return status >= 0;
 }
@@ -376,27 +348,29 @@ metadata_parse_array(struct metadata *metadata, sd_bus_message *message)
 static bool
 property_parse(struct property *prop, const char *property_name, sd_bus_message *message)
 {
-    /* This function is called in two different ways:
-     * 1. update_status(): The property is passed directly
-     * 2. update_status_from_message(): The property is passed wrapped
-     *    inside a variant and has to be unpacked */
     const char *argument_layout = NULL;
     char argument_type = 0;
     int status = sd_bus_message_peek_type(message, &argument_type, &argument_layout);
 
+    /* If the message is a response to the 'GetAll' properties
+     * request. Its values are wrapped in an additional variant that
+     * we have to unpack. */
+    if (argument_type == SD_BUS_TYPE_VARIANT) {
+        sd_bus_message_enter_container(message, SD_BUS_TYPE_VARIANT, NULL);
+    }
+
     assert(status > 0);
-    assert(argument_type == SD_BUS_TYPE_VARIANT);
-    assert(argument_layout != NULL && strlen(argument_layout) > 0);
+    assert(!is_empty_string(argument_layout));
 
     const char *string;
     if (strcmp(property_name, "PlaybackStatus") == 0) {
-        status = sd_bus_message_read(message, "v", "s", &string);
-        if (status)
+        status = sd_bus_message_read_basic(message, SD_BUS_TYPE_STRING, &string);
+        if (status && !is_empty_string(string))
             prop->playback_status = strdup(string);
 
     } else if (strcmp(property_name, "LoopStatus") == 0) {
-        status = sd_bus_message_read(message, "v", "s", &string);
-        if (status)
+        status = sd_bus_message_read_basic(message, SD_BUS_TYPE_STRING, &string);
+        if (status && !is_empty_string(string))
             prop->loop_status = strdup(string);
 
     } else if (strcmp(property_name, "Position") == 0) {
@@ -406,10 +380,10 @@ property_parse(struct property *prop, const char *property_name, sd_bus_message 
             LOG_ERR("property: unexpected type for '%s'", property_name);
             return false;
         }
-        status = sd_bus_message_read(message, "v", argument_layout[0], &prop->position_us);
+        status = sd_bus_message_read_basic(message, argument_layout[0], &prop->position_us);
 
     } else if (strcmp(property_name, "Shuffle") == 0) {
-        status = sd_bus_message_read(message, "v", "b", &prop->shuffle);
+        status = sd_bus_message_read_basic(message, SD_BUS_TYPE_BOOLEAN, &prop->shuffle);
 
     } else if (strcmp(property_name, "Metadata") == 0) {
         metadata_clear(&prop->metadata);
@@ -417,43 +391,121 @@ property_parse(struct property *prop, const char *property_name, sd_bus_message 
 
     } else {
         LOG_DBG("property: ignoring property: %s", property_name);
-        sd_bus_message_skip(message, NULL);
-        return true;
+        status = sd_bus_message_skip(message, NULL);
+    }
+
+    /* Close the 'GetAll' messages variant wrapper */
+    if (argument_type == SD_BUS_TYPE_VARIANT) {
+        status = sd_bus_message_exit_container(message);
+        assert(status >= 0);
     }
 
     return status > 0;
 }
 
+static uint64_t
+timespec_diff_us(const struct timespec *a, const struct timespec *b)
+{
+    uint64_t nsecs_a = a->tv_sec * 1000000000 + a->tv_nsec;
+    uint64_t nsecs_b = b->tv_sec * 1000000000 + b->tv_nsec;
+
+    assert(nsecs_a >= nsecs_b);
+    uint64_t nsec_diff = nsecs_a - nsecs_b;
+    return nsec_diff / 1000;
+}
+
+static bool
+update_client_from_message(struct client *client, sd_bus_message *message)
+{
+    int status = 1;
+    const char *member = sd_bus_message_get_member(message);
+
+    /* Player.Seeked (UINT64 position)*/
+    if (!is_empty_string(member) && strcmp(member, "Seeked") == 0) {
+        client->has_seeked_support = true;
+
+        status = sd_bus_message_read_basic(message, SD_BUS_TYPE_INT64, &client->property.position_us);
+        if (status <= 0)
+            return status;
+
+        clock_gettime(CLOCK_MONOTONIC, &client->seeked_when);
+        return true;
+    } else if (!is_empty_string(member) && strcmp(member, "PropertiesChanged") == 0) {
+        /* Properties.PropertiesChanged (STRING interface_name,
+         *                               ARRAY of DICT_ENTRY<STRING,VARIANT> changed_properties,
+         *                               ARRAY<STRING> invalidated_properties); */
+
+        /* argument: 'interface_name' layout: 's' */
+        const char *interface_name = NULL;
+        sd_bus_message_read_basic(message, SD_BUS_TYPE_STRING, &interface_name);
+
+        if (strcmp(interface_name, MPRIS_INTERFACE_PLAYER) != 0) {
+            LOG_DBG("Ignoring interface: %s", interface_name);
+            return true;
+        }
+    } else if (member != NULL) {
+        LOG_ERR("Unable to process unknown message/signal type: %s", member);
+        return false;
+    }
+
+    /* Make sure we reset the position on metadata change unless the
+     * update contains its own position value */
+    bool should_reset_position = true;
+    bool has_entries = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
+
+    /* Enter properties array */
+    while ((has_entries = sd_bus_message_enter_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv")) > 0) {
+        const char *property_name = NULL;
+        int status __attribute__((unused)) = sd_bus_message_read_basic(message, SD_BUS_TYPE_STRING, &property_name);
+        assert(status > 0);
+
+        if (!property_parse(&client->property, property_name, message)) {
+            return false;
+        }
+
+        /* Close properties array */
+        status = sd_bus_message_exit_container(message);
+        assert(status >= 0);
+
+        if (strcmp(property_name, "PlaybackStatus") == 0) {
+            if (strcmp(client->property.playback_status, "Stopped") == 0) {
+                client->status = STATUS_STOPPED;
+
+            } else if (strcmp(client->property.playback_status, "Playing") == 0) {
+                clock_gettime(CLOCK_MONOTONIC, &client->seeked_when);
+                client->status = STATUS_PLAYING;
+
+            } else if (strcmp(client->property.playback_status, "Paused") == 0) {
+                /* Update our position to include the elapsed time */
+                struct timespec now;
+                clock_gettime(CLOCK_MONOTONIC, &now);
+                client->status = STATUS_PAUSED;
+                client->property.position_us += timespec_diff_us(&now, &client->seeked_when);
+            }
+        }
+
+        /* Make sure to reset the position upon metadata/song changes */
+        if (should_reset_position && strcmp(property_name, "Metadata") == 0) {
+            client->property.position_us = 0;
+
+            if (client->property.playback_status == NULL) {
+                client->property.playback_status = "Paused";
+                client->status = STATUS_PAUSED;
+            }
+        }
+
+        if (strcmp(property_name, "Position") == 0) {
+            should_reset_position = false;
+        }
+    }
+
+    status = sd_bus_message_exit_container(message);
+    assert(status > 0);
+
+    return true;
+}
+
 /* ------------- */
-
-static void
-format_usec_timestamp(unsigned usec, char *s, size_t sz)
-{
-    uint32_t secs = usec / 1000 / 1000;
-    uint32_t hours = secs / (60 * 60);
-    uint32_t minutes = secs % (60 * 60) / 60;
-    secs %= 60;
-
-    if (hours > 0)
-        snprintf(s, sz, "%02u:%02u:%02u", hours, minutes, secs);
-    else
-        snprintf(s, sz, "%02u:%02u", minutes, secs);
-}
-
-static void
-destroy(struct module *mod)
-{
-    struct private *m = mod->private;
-    struct context *context = &m->context;
-
-    client_free_all(context);
-
-    sd_bus_close(context->monitor_connection);
-
-    module_default_destroy(mod);
-    m->label->destroy(m->label);
-    free(m);
-}
 
 static void
 context_event_handle_name_owner_changed(sd_bus_message *message, struct context *context)
@@ -463,16 +515,13 @@ context_event_handle_name_owner_changed(sd_bus_message *message, struct context 
      * it was acquired, lost or changed */
 
     const char *bus_name = NULL, *old_owner = NULL, *new_owner = NULL;
-    int status __attribute__((unused))
-        = sd_bus_message_read(message, "sss", &bus_name, &old_owner, &new_owner);
+    int status __attribute__((unused)) = sd_bus_message_read(message, "sss", &bus_name, &old_owner, &new_owner);
     assert(status > 0);
 
-#if 1
-    LOG_DBG("event_handler: 'NameOwnerChanged': bus_name: '%s' old_owner: '%s' new_ower: '%s'", bus_name, old_owner,
-            new_owner);
-#endif
+    /*LOG_DBG("event_handler: 'NameOwnerChanged': bus_name: '%s' old_owner: '%s' new_ower: '%s'", bus_name, old_owner,*/
+    /*        new_owner);*/
 
-    if (strlen(new_owner) == 0 && strlen(old_owner) > 0) {
+    if (is_empty_string(new_owner) && !is_empty_string(old_owner)) {
         /* Target bus has been lost */
         struct client *client = client_lookup_by_unique_name(context, old_owner);
 
@@ -480,20 +529,20 @@ context_event_handle_name_owner_changed(sd_bus_message *message, struct context 
             return;
 
         LOG_DBG("event_handler: 'NameOwnerChanged': Target bus disappeared: %s", client->bus_name);
-        clients_free_by_unique_name(context, client->bus_unique_name);
+        client_free_by_unique_name(context, client->bus_unique_name);
 
         if (context->current_client == client)
             context->current_client = NULL;
 
         return;
-    } else if (strlen(old_owner) == 0 && strlen(new_owner) > 0) {
+    } else if (is_empty_string(old_owner) && !is_empty_string(new_owner)) {
         /* New unique name registered. Not used */
         return;
     }
 
     /* Name changed */
-    assert(new_owner != NULL && strlen(new_owner) > 0);
-    assert(old_owner != NULL && strlen(old_owner) > 0);
+    assert(!is_empty_string(new_owner));
+    assert(!is_empty_string(old_owner));
 
     struct client *client = client_lookup_by_unique_name(context, old_owner);
     LOG_DBG("'NameOwnerChanged': Name changed from '%s' to '%s' for client '%s'", old_owner, new_owner,
@@ -509,17 +558,16 @@ context_event_handle_name_acquired(sd_bus_message *message, struct context *cont
     /* NameAcquired (STRING name) */
     /* " This signal is sent to a specific application when it gains ownership of a name. " */
     const char *name = NULL;
-    int status __attribute__((unused))
-        = sd_bus_message_read_basic(message, SD_BUS_TYPE_STRING, &name);
+    int status __attribute__((unused)) = sd_bus_message_read_basic(message, SD_BUS_TYPE_STRING, &name);
     assert(status > 0);
 
-    /*LOG_DBG("event_handler: 'NameAcquired': name: '%s'", name);*/
+    LOG_DBG("event_handler: 'NameAcquired': name: '%s'", name);
 
-    if (strncmp(name, BUS_NAME, strlen(BUS_NAME)) != 0) {
+    if (strncmp(name, MPRIS_BUS_NAME, strlen(MPRIS_BUS_NAME)) != 0) {
         return;
     }
 
-    if (verify_bus_name(context->identities_ref, context->identities_count, name)) {
+    if (verify_bus_name(&context->mpd_config->identity_list, name)) {
         const char *unique_name = sd_bus_message_get_destination(message);
         LOG_DBG("'NameAcquired': Acquired new client: %s unique: %s", name, unique_name);
         client_add(context, name, unique_name);
@@ -558,7 +606,8 @@ context_event_handler(sd_bus_message *message, void *userdata, sd_bus_error *ret
 
     /* Copy the 'PropertiesChanged/Seeked' message, so it can be parsed
      * later on */
-    if (strcmp(path_name, PATH) == 0 && (strcmp(member, "PropertiesChanged") == 0 || strcmp(member, "Seeked") == 0)) {
+    if (strcmp(path_name, MPRIS_PATH) == 0
+        && (strcmp(member, "PropertiesChanged") == 0 || strcmp(member, "Seeked") == 0)) {
         struct client *client = client_lookup_by_unique_name(context, sender);
         if (client == NULL)
             return 1;
@@ -607,17 +656,106 @@ context_process_events(struct context *context, uint32_t timeout_ms)
 }
 
 static bool
-context_new(struct private *m, struct context *context)
+find_existing_clients(struct context *context, sd_bus *connection, uint32_t timeout_ms)
 {
+    int status = 0;
+    sd_bus_message *list_names_message = NULL, *list_names_reply = NULL;
+    sd_bus_error error = {};
+
+    /* Get a list of registered clients: ARRAY of STRING ListNames */
+    status = sd_bus_message_new_method_call(connection, &list_names_message, DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE,
+                                            "ListNames");
+    status = sd_bus_call(connection, list_names_message, timeout_ms, &error, &list_names_reply);
+    if (status < 0 && sd_bus_error_is_set(&error)) {
+        LOG_ERR("context_setup: got error: %s: %s (%d)", error.name, error.message, sd_bus_error_get_errno(&error));
+        return false;
+    }
+
+    /* Enter names array */
+    status = sd_bus_message_enter_container(list_names_reply, SD_BUS_TYPE_ARRAY, "s");
+    while (!sd_bus_message_at_end(list_names_reply, 0)) {
+        const char *client_name = NULL;
+        status = sd_bus_message_read_basic(list_names_reply, SD_BUS_TYPE_STRING, &client_name);
+        assert(status >= 0);
+
+        if (!verify_bus_name(&context->mpd_config->identity_list, client_name))
+            continue;
+
+        /* Request the clients unique identifier */
+        sd_bus_message *uniq_message = NULL, *uniq_reply = NULL;
+        status = sd_bus_message_new_method_call(connection, &uniq_message, DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE,
+                                                "GetNameOwner");
+        status = sd_bus_message_append_basic(uniq_message, SD_BUS_TYPE_STRING, client_name);
+        assert(status >= 0);
+
+        memset(&error, 0, sizeof(error));
+        status = sd_bus_call(connection, uniq_message, timeout_ms, &error, &uniq_reply);
+        if (status < 0 && sd_bus_error_is_set(&error)) {
+            LOG_WARN("Failed to query unique identifier for existing client '%s': %s: %s (%d)", client_name, error.name,
+                     error.message, sd_bus_error_get_errno(&error));
+            continue;
+        }
+
+        const char *client_uniq_name = NULL;
+        sd_bus_message_read_basic(uniq_reply, SD_BUS_TYPE_STRING, &client_uniq_name);
+
+        /* Request the clients properties */
+        sd_bus_message *props_message = NULL, *props_reply = NULL;
+        status = sd_bus_message_new_method_call(connection, &props_message, client_name, MPRIS_PATH,
+                                                DBUS_INTERFACE_PROPERTIES, "GetAll");
+        status = sd_bus_message_append_basic(props_message, SD_BUS_TYPE_STRING, MPRIS_INTERFACE_PLAYER);
+
+        memset(&error, 0, sizeof(error));
+        status = sd_bus_call(connection, props_message, timeout_ms, &error, &props_reply);
+        if (status < 0 && sd_bus_error_is_set(&error)) {
+            LOG_WARN("Failed to query properties for existing client '%s': %s: %s (%d)", client_name, error.name,
+                     error.message, sd_bus_error_get_errno(&error));
+            sd_bus_message_unref(props_message);
+            continue;
+        } else {
+            /* Process the new clients properties */
+            client_add(context, client_name, client_uniq_name);
+            struct client *client = tll_front(context->clients);
+            if (!update_client_from_message(client, props_reply)) {
+                LOG_WARN("Failed to process existing client: %s", client_name);
+                tll_pop_front(context->clients);
+            }
+        }
+
+        sd_bus_message_unref(uniq_message);
+        sd_bus_message_unref(uniq_reply);
+        sd_bus_message_unref(props_message);
+        sd_bus_message_unref(props_reply);
+    }
+
+    /* Close names array */
+    sd_bus_message_close_container(list_names_message);
+    sd_bus_message_unref(list_names_message);
+
+    return status > 0;
+}
+
+static bool
+context_setup(struct context *context)
+{
+    /* Setup initial connection */
     int status = true;
-    sd_bus *connection;
+    sd_bus *connection = NULL;
     if ((status = sd_bus_default_user(&connection)) < 0) {
         LOG_ERR("Failed to connect to the desktop bus. errno: %d", status);
-        return -1;
+        return false;
+    }
+
+    /* Existing clients must be processed before
+     * the connection is turned into a monitor, since
+     * monitor connections cannot send messages. */
+    if (find_existing_clients(context, connection, context->mpd_config->timeout_ms)) {
+        context->current_client = tll_front(context->clients);
+        LOG_INFO("Selecting last registered client: %s", context->current_client->bus_name);
     }
 
     /* Turn this connection into a monitor */
-    sd_bus_message *message;
+    sd_bus_message *message = NULL;
     status = sd_bus_message_new_method_call(connection, &message, DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE_MONITORING,
                                             "BecomeMonitor");
 
@@ -641,148 +779,50 @@ context_new(struct private *m, struct context *context)
     /* "BecomeMonitor" ('asu'): (Rules: String[], Flags: UINT32) */
     /* https://dbus.freedesktop.org/doc/dbus-specification.html#bus-messages-become-monitor */
     status = sd_bus_message_open_container(message, SD_BUS_TYPE_ARRAY, "s");
+    assert(status >= 0);
     for (uint32_t i = 0; i < sizeof(matching_rules) / sizeof(matching_rules[0]); i++) {
-        status = sd_bus_message_append(message, "s", matching_rules[i]);
+        status = sd_bus_message_append_basic(message, SD_BUS_TYPE_STRING, matching_rules[i]);
+        assert(status >= 0);
     }
     status = sd_bus_message_close_container(message);
     status = sd_bus_message_append_basic(message, SD_BUS_TYPE_UINT32, &(uint32_t){0});
 
     sd_bus_message *reply = NULL;
     sd_bus_error error = {};
-    status = sd_bus_call(NULL, message, QUERY_TIMEOUT, &error, &reply);
-
+    status = sd_bus_call(connection, message, context->mpd_config->timeout_ms, &error, &reply);
     if (status < 0 && sd_bus_error_is_set(&error)) {
-        LOG_ERR("context_new: got error response with error: %s: %s (%d)", error.name, error.message,
-                sd_bus_error_get_errno(&error));
+        LOG_ERR("Failed to create context: %s: %s (%d)", error.name, error.message, sd_bus_error_get_errno(&error));
         return false;
     }
+    context->monitor_connection = connection;
 
     sd_bus_message_unref(message);
     sd_bus_message_unref(reply);
-
-    (*context) = (struct context){
-        .monitor_connection = connection,
-        .identities_ref = (char **)m->identities,
-        .identities_count = m->identities_count,
-        .clients = tll_init(),
-    };
 
     sd_bus_add_filter(connection, NULL, context_event_handler, context);
 
     return status >= 0;
 }
 
-static uint64_t
-timespec_diff_us(const struct timespec *a, const struct timespec *b)
+static void
+format_usec_timestamp(unsigned usec, char *s, size_t sz)
 {
-    uint64_t nsecs_a = a->tv_sec * 1000000000 + a->tv_nsec;
-    uint64_t nsecs_b = b->tv_sec * 1000000000 + b->tv_nsec;
+    uint32_t secs = usec / 1000 / 1000;
+    uint32_t hours = secs / (60 * 60);
+    uint32_t minutes = secs % (60 * 60) / 60;
+    secs %= 60;
 
-    assert(nsecs_a >= nsecs_b);
-    uint64_t nsec_diff = nsecs_a - nsecs_b;
-    return nsec_diff / 1000;
-}
-
-static bool
-update_status_from_message(struct module *mod, sd_bus_message *message)
-{
-    struct private *m = mod->private;
-    mtx_lock(&mod->lock);
-
-    struct client *client = m->context.current_client;
-    int status = 1;
-
-    /* Player.Seeked (UINT64 position)*/
-    if (strcmp(sd_bus_message_get_member(message), "Seeked") == 0) {
-        client->has_seeked_support = true;
-
-        status = sd_bus_message_read_basic(message, SD_BUS_TYPE_INT64, &client->property.position_us);
-        if (status <= 0)
-            return status;
-
-        clock_gettime(CLOCK_MONOTONIC, &client->seeked_when);
-        return true;
-    }
-
-    /* Properties.PropertiesChanged (STRING interface_name,
-     *                               ARRAY of DICT_ENTRY<STRING,VARIANT> changed_properties,
-     *                               ARRAY<STRING> invalidated_properties); */
-    assert(strcmp(sd_bus_message_get_member(message), "PropertiesChanged") == 0);
-    assert(strcmp(sd_bus_message_get_signature(message, 1), "sa{sv}as") == 0);
-
-    /* argument: 'interface_name' layout: 's' */
-    const char *interface_name = NULL;
-    sd_bus_message_read_basic(message, SD_BUS_TYPE_STRING, &interface_name);
-
-    if (strcmp(interface_name, INTERFACE_PLAYER) != 0) {
-        LOG_DBG("Ignoring interface: %s", interface_name);
-        mtx_unlock(&mod->lock);
-        return true;
-    }
-
-    /* argument: 'changed_properties' layout: 'a{sv}' */
-
-    /* Make sure we reset the position on metadata change unless the
-     * update contains its own position value */
-    bool should_reset_position = true;
-    bool has_entries = sd_bus_message_enter_container(message, SD_BUS_TYPE_ARRAY, "{sv}");
-
-    while ((has_entries = sd_bus_message_enter_container(message, SD_BUS_TYPE_DICT_ENTRY, "sv")) > 0) {
-        const char *property_name = NULL;
-        int status __attribute__((unused))
-            = sd_bus_message_read_basic(message, SD_BUS_TYPE_STRING, &property_name);
-        assert(status > 0);
-
-        if (!property_parse(&client->property, property_name, message)) {
-            return false;
-        }
-
-        status = sd_bus_message_exit_container(message);
-        assert(status >= 0);
-
-        if (strcmp(property_name, "PlaybackStatus") == 0) {
-            if (strcmp(client->property.playback_status, "Stopped") == 0) {
-                client->status = STATUS_STOPPED;
-
-            } else if (strcmp(client->property.playback_status, "Playing") == 0) {
-                clock_gettime(CLOCK_MONOTONIC, &client->seeked_when);
-                client->status = STATUS_PLAYING;
-
-            } else if (strcmp(client->property.playback_status, "Paused") == 0) {
-                /* Update our position to include the elapsed time */
-                struct timespec now;
-                clock_gettime(CLOCK_MONOTONIC, &now);
-                client->status = STATUS_PAUSED;
-                client->property.position_us += timespec_diff_us(&now, &client->seeked_when);
-            }
-        }
-
-        /* Make sure to reset the position upon metadata/song changes */
-        if (should_reset_position && strcmp(property_name, "Metadata") == 0) {
-            client->property.position_us = 0;
-
-            if (client->property.playback_status == NULL) {
-                client->property.playback_status = "Paused";
-                client->status = STATUS_PAUSED;
-            }
-        }
-
-        if (strcmp(property_name, "Position") == 0) {
-            should_reset_position = false;
-        }
-    }
-
-    status = sd_bus_message_exit_container(message);
-    assert(status > 0);
-
-    mtx_unlock(&mod->lock);
-    return true;
+    if (hours > 0)
+        snprintf(s, sz, "%02u:%02u:%02u", hours, minutes, secs);
+    else
+        snprintf(s, sz, "%02u:%02u", minutes, secs);
 }
 
 static struct exposable *
 content_empty(struct module *mod)
 {
     struct private *m = mod->private;
+    mtx_lock(&mod->lock);
 
     struct tag_set tags = {
         .tags = (struct tag *[]){
@@ -802,11 +842,10 @@ content_empty(struct module *mod)
         .count = 10,
     };
 
+    struct exposable *exposable = m->label->instantiate(m->label, &tags);
+    tag_set_destroy(&tags);
     mtx_unlock(&mod->lock);
 
-    struct exposable *exposable = m->label->instantiate(m->label, &tags);
-
-    tag_set_destroy(&tags);
     return exposable;
 }
 
@@ -880,6 +919,7 @@ content(struct module *mod)
     const enum tag_realtime_unit realtime_unit
         = (client->has_seeked_support && client->status == STATUS_PLAYING) ? TAG_REALTIME_MSECS : TAG_REALTIME_NONE;
 
+    mtx_lock(&mod->lock);
     struct tag_set tags = {
         .tags = (struct tag *[]){
             tag_new_bool(mod, "has_seeked_support", client->has_seeked_support),
@@ -898,11 +938,10 @@ content(struct module *mod)
         .count = 11,
     };
 
+    struct exposable *exposable = m->label->instantiate(m->label, &tags);
+    tag_set_destroy(&tags);
     mtx_unlock(&mod->lock);
 
-    struct exposable *exposable = m->label->instantiate(m->label, &tags);
-
-    tag_set_destroy(&tags);
     return exposable;
 }
 
@@ -1008,7 +1047,7 @@ run(struct module *mod)
     const struct bar *bar = mod->bar;
     struct private *m = mod->private;
 
-    if (!context_new(m, &m->context)) {
+    if (!context_setup(&m->context)) {
         LOG_ERR("Failed to setup context");
         return -1;
     }
@@ -1035,7 +1074,7 @@ run(struct module *mod)
             break;
         }
 
-        if (!context_process_events(context, QUERY_TIMEOUT)) {
+        if (!context_process_events(context, m->timeout_ms)) {
             aborted = true;
             break;
         }
@@ -1049,7 +1088,7 @@ run(struct module *mod)
             assert(context->update_message != NULL);
 
             context->has_update = false;
-            aborted = !update_status_from_message(mod, context->update_message);
+            aborted = !update_client_from_message(context->current_client, context->update_message);
             context->update_message = sd_bus_message_unref(context->update_message);
         }
 
@@ -1057,8 +1096,22 @@ run(struct module *mod)
     }
 
     LOG_DBG("exiting");
-
     return ret;
+}
+
+static void
+destroy(struct module *mod)
+{
+    struct private *m = mod->private;
+
+    tll_free_and_free(m->context.clients, client_free);
+    sd_bus_close(m->context.monitor_connection);
+
+    tll_free_and_free(m->identity_list, free);
+    m->label->destroy(m->label);
+    free(m);
+
+    module_default_destroy(mod);
 }
 
 static const char *
@@ -1068,15 +1121,17 @@ description(const struct module *mod)
 }
 
 static struct module *
-mpris_new(const char **ident, size_t ident_count, struct particle *label)
+mpris_new(const struct yml_node *ident_list, size_t timeout_ms, struct particle *label)
 {
     struct private *priv = calloc(1, sizeof(*priv));
     priv->label = label;
-    priv->identities = malloc(sizeof(*ident) * ident_count);
-    priv->identities_count = ident_count;
+    priv->timeout_ms = timeout_ms;
+    priv->context.mpd_config = priv;
 
-    for (size_t i = 0; i < ident_count; i++) {
-        priv->identities[i] = strdup(ident[i]);
+    size_t i = 0;
+    for (struct yml_list_iter iter = yml_list_iter(ident_list); iter.node != NULL; yml_list_next(&iter), i++) {
+        char *string = strdup(yml_value_as_string(iter.node));
+        tll_push_back(priv->identity_list, string);
     }
 
     struct module *mod = module_common_new();
@@ -1093,16 +1148,14 @@ static struct module *
 from_conf(const struct yml_node *node, struct conf_inherit inherited)
 {
     const struct yml_node *ident_list = yml_get_value(node, "identities");
+    const struct yml_node *query_timeout = yml_get_value(node, "query_timeout");
     const struct yml_node *c = yml_get_value(node, "content");
 
-    const size_t ident_count = yml_list_length(ident_list);
-    const char *ident[ident_count];
-    size_t i = 0;
-    for (struct yml_list_iter iter = yml_list_iter(ident_list); iter.node != NULL; yml_list_next(&iter), i++) {
-        ident[i] = yml_value_as_string(iter.node);
-    }
+    size_t timeout_ms = DEFAULT_QUERY_TIMEOUT_MS;
+    if (query_timeout != NULL)
+        timeout_ms = yml_value_as_int(query_timeout) * 1000;
 
-    return mpris_new(ident, ident_count, conf_to_particle(c, inherited));
+    return mpris_new(ident_list, timeout_ms, conf_to_particle(c, inherited));
 }
 
 static bool
@@ -1116,6 +1169,7 @@ verify_conf(keychain_t *chain, const struct yml_node *node)
 {
     static const struct attr_info attrs[] = {
         {"identities", true, &conf_verify_indentities},
+        {"query_timeout", false, &conf_verify_unsigned},
         MODULE_COMMON_ATTRS,
     };
 
