@@ -733,7 +733,7 @@ find_existing_clients(struct context *context, sd_bus *connection, uint32_t time
     sd_bus_message_close_container(list_names_message);
     sd_bus_message_unref(list_names_message);
 
-    return status > 0;
+    return status > 0 && context->clients.length > 0;
 }
 
 static bool
