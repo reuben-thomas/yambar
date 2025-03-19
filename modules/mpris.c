@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <systemd/sd-bus-protocol.h>
 #include <threads.h>
 #include <time.h>
 #include <unistd.h>
@@ -99,8 +100,8 @@ struct private
     int refresh_abort_fd;
 
     size_t timeout_ms;
-    struct context context;
     string_array identity_list;
+    struct context context;
     struct particle *label;
 };
 
@@ -714,7 +715,8 @@ find_existing_clients(struct context *context, sd_bus *connection, uint32_t time
         } else {
             /* Process the new clients properties */
             client_add(context, client_name, client_uniq_name);
-            struct client *client = tll_front(context->clients);
+            struct client *client = tll_back(context->clients);
+
             if (!update_client_from_message(client, props_reply)) {
                 LOG_WARN("Failed to process existing client: %s", client_name);
                 tll_pop_front(context->clients);
@@ -749,11 +751,9 @@ context_setup(struct context *context)
      * the connection is turned into a monitor, since
      * monitor connections cannot send messages. */
     if (find_existing_clients(context, connection, context->mpd_config->timeout_ms)) {
-        context->current_client = tll_front(context->clients);
+        context->current_client = tll_back(context->clients);
         LOG_INFO("Selecting last registered client: %s", context->current_client->bus_name);
     }
-
-    context->monitor_connection = connection;
 
     /* Turn this connection into a monitor */
     sd_bus_message *message = NULL;
