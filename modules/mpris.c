@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <systemd/sd-bus-protocol.h>
 #include <threads.h>
 #include <time.h>
 #include <unistd.h>
@@ -100,8 +99,8 @@ struct private
     int refresh_abort_fd;
 
     size_t timeout_ms;
-    string_array identity_list;
     struct context context;
+    string_array identity_list;
     struct particle *label;
 };
 
@@ -753,6 +752,8 @@ context_setup(struct context *context)
         context->current_client = tll_front(context->clients);
         LOG_INFO("Selecting last registered client: %s", context->current_client->bus_name);
     }
+
+    context->monitor_connection = connection;
 
     /* Turn this connection into a monitor */
     sd_bus_message *message = NULL;
