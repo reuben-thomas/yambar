@@ -23,7 +23,6 @@
 #include "../plugin.h"
 
 #include "dbus.h"
-#include "yml.h"
 
 #define is_empty_string(str) ((str) == NULL || (str)[0] == '\0')
 
@@ -1070,10 +1069,12 @@ run(struct module *mod)
             break;
         }
 
+        mtx_lock(&mod->lock);
         if (!context_process_events(context, m->timeout_ms)) {
             aborted = true;
             break;
         }
+        mtx_unlock(&mod->lock);
 
         /* Process dynamic updates, received through the contexts
          * monitor connection. The 'upate_message' attribute is set
@@ -1083,9 +1084,11 @@ run(struct module *mod)
             assert(context->current_client != NULL);
             assert(context->update_message != NULL);
 
+            mtx_lock(&mod->lock);
             context->has_update = false;
             aborted = !update_client_from_message(context->current_client, context->update_message);
             context->update_message = sd_bus_message_unref(context->update_message);
+            mtx_unlock(&mod->lock);
         }
 
         bar->refresh(bar);
