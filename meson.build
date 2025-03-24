@@ -71,7 +71,11 @@ backend_x11 = xcb_aux.found() and xcb_cursor.found() and xcb_event.found() and \
 # Wayland dependencies
 wayland_client = dependency('wayland-client', required: get_option('backend-wayland'))
 wayland_cursor = dependency('wayland-cursor', required: get_option('backend-wayland'))
+wayland_protocols = dependency('wayland-protocols', required: get_option('backend-wayland'))
 backend_wayland = wayland_client.found() and wayland_cursor.found()
+if backend_wayland and wayland_protocols.version().version_compare('>=1.32')
+    add_project_arguments('-DHAVE_CURSOR_SHAPE=1', language: 'c')
+endif
 
 # "My" dependencies, fallback to subproject
 tllist = dependency('tllist', version: '>=1.0.1', fallback: 'tllist')

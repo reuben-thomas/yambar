@@ -21,6 +21,10 @@
 #include <wlr-layer-shell-unstable-v1.h>
 #include <xdg-output-unstable-v1.h>
 
+#ifdef HAVE_CURSOR_SHAPE
+#include <cursor-shape-v1.h>
+#endif
+
 #define LOG_MODULE "bar:wayland"
 #define LOG_ENABLE_DBG 0
 #include "../log.h"
@@ -107,6 +111,10 @@ struct wayland_backend {
 
     struct zxdg_output_manager_v1 *xdg_output_manager;
 
+#ifdef HAVE_CURSOR_SHAPE
+    struct wp_cursor_shape_manager_v1 *cursor_shape_manager;
+#endif
+
     /* TODO: set directly in bar instead */
     int width, height;
 
@@ -143,6 +151,23 @@ seat_destroy(struct seat *seat)
         wl_surface_destroy(seat->pointer.surface);
     if (seat->seat != NULL)
         wl_seat_release(seat->seat);
+}
+
+static bool attempt_cursor_shape(struct wayland_backend *wayl, struct wl_pointer *wl_pointer,
+                                 uint32_t serial) {
+#ifdef HAVE_CURSOR_SHAPE
+    if (wayl->cursor_shape_manager) {
+        struct wp_cursor_shape_device_v1 *device =
+            wp_cursor_shape_manager_v1_get_pointer(
+                wayl->cursor_shape_manager, wl_pointer);
+        wp_cursor_shape_device_v1_set_shape(device, serial,
+            WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT);
+        wp_cursor_shape_device_v1_destroy(device);
+        return true;
+    }
+#endif
+
+    return false;
 }
 
 void *
@@ -235,8 +260,11 @@ wl_pointer_enter(void *data, struct wl_pointer *wl_pointer, uint32_t serial, str
     seat->pointer.y = wl_fixed_to_int(surface_y) * backend->scale;
 
     backend->active_seat = seat;
-    reload_cursor_theme(seat, backend->monitor->scale);
-    update_cursor_surface(backend, seat);
+
+    if (!attempt_cursor_shape(backend, wl_pointer, serial)) {
+        reload_cursor_theme(seat, backend->monitor->scale);
+        update_cursor_surface(backend, seat);
+    }
 }
 
 static void
@@ -678,6 +706,16 @@ handle_global(void *data, struct wl_registry *registry, uint32_t name, const cha
 
         backend->xdg_output_manager = wl_registry_bind(registry, name, &zxdg_output_manager_v1_interface, required);
     }
+#ifdef HAVE_CURSOR_SHAPE
+    else if (strcmp(interface, wp_cursor_shape_manager_v1_interface.name) == 0) {
+        const uint32_t required = 1;
+        if (!verify_iface_version(interface, version, required))
+            return;
+
+        backend->cursor_shape_manager = wl_registry_bind(
+        backend->registry, name, &wp_cursor_shape_manager_v1_interface, required);
+    }
+#endif
 }
 
 static void
@@ -1145,6 +1183,11 @@ cleanup(struct bar *_bar)
 
     if (backend->xdg_output_manager != NULL)
         zxdg_output_manager_v1_destroy(backend->xdg_output_manager);
+
+#ifdef HAVE_CURSOR_SHAPE
+    if (backend->cursor_shape_manager != NULL)
+        wp_cursor_shape_manager_v1_destroy(backend->cursor_shape_manager);
+#endif
 
     tll_foreach(backend->seats, it) seat_destroy(&it->item);
     tll_free(backend->seats);
