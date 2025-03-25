@@ -73,7 +73,7 @@ parser(char *response)
 
                 // only add workspaces on the current yambar's monitor
                 struct json_object *output = json_object_object_get(ws_obj, "output");
-                if (strcmp(instance.monitor, json_object_get_string(output)) != 0)
+                if (output == NULL || strcmp(instance.monitor, json_object_get_string(output)) != 0)
                     continue;
 
                 struct niri_workspace *ws = calloc(1, sizeof(*ws));
