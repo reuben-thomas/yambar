@@ -538,6 +538,9 @@ context_event_handle_name_owner_changed(sd_bus_message *message, struct context 
     assert(!is_empty_string(old_owner));
 
     struct client *client = client_lookup_by_unique_name(context, old_owner);
+    if (client == NULL)
+        return;
+
     LOG_DBG("'NameOwnerChanged': Name changed from '%s' to '%s' for client '%s'", old_owner, new_owner,
             client->bus_name);
     client_change_unique_name(client, new_owner);
