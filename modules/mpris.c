@@ -620,37 +620,6 @@ context_event_handler(sd_bus_message *message, void *userdata, sd_bus_error *ret
     return 1;
 }
 
-static bool
-context_process_events(struct context *context, uint32_t timeout_ms)
-{
-    int status = -1;
-
-    status = sd_bus_wait(context->monitor_connection, timeout_ms);
-    if (status < 0) {
-        if (status == -ENOTCONN)
-            LOG_DBG("Disconnect signal has been processed");
-        else
-            LOG_ERR("Failed to query monitor connection: errno=%d", status);
-
-        return false;
-    }
-
-    /* 'sd_bus_process' processes one 'action' per call.
-     * This includes: connection, authentication, message processing */
-    status = sd_bus_process(context->monitor_connection, NULL);
-
-    if (status < 0) {
-        if (status == -ENOTCONN)
-            LOG_DBG("Disconnect signal has been processed");
-        else
-            LOG_ERR("Failed to query monitor connection: errno=%d", status);
-
-        return false;
-    }
-
-    return true;
-}
-
 /* Setup */
 
 static bool
@@ -797,6 +766,10 @@ context_setup(struct context *context)
     sd_bus_message_unref(message);
     sd_bus_message_unref(reply);
 
+    /* FIXME: We should pass the module instead.
+     *          - Allows finer control over mod locking
+     *          - Makes things less awkward/more consistent (ie. the
+     *           'mpris_config' ptr). */
     sd_bus_add_filter(connection, NULL, context_event_handler, context);
 
     return status >= 0;
@@ -820,8 +793,6 @@ static struct exposable *
 content_empty(struct module *mod)
 {
     struct private *m = mod->private;
-    mtx_lock(&mod->lock);
-
     struct tag_set tags = {
         .tags = (struct tag *[]){
             tag_new_bool(mod, "has-seeked-support", "false"),
@@ -842,7 +813,6 @@ content_empty(struct module *mod)
 
     struct exposable *exposable = m->label->instantiate(m->label, &tags);
     tag_set_destroy(&tags);
-    mtx_unlock(&mod->lock);
 
     return exposable;
 }
@@ -851,10 +821,13 @@ static struct exposable *
 content(struct module *mod)
 {
     const struct private *m = mod->private;
-    const struct client *client = m->context.current_client;
+    mtx_lock(&mod->lock);
 
+    const struct client *client = m->context.current_client;
     if (client == NULL) {
-        return content_empty(mod);
+        struct exposable *exp = content_empty(mod);
+        mtx_unlock(&mod->lock);
+        return exp;
     }
 
     const struct metadata *metadata = &client->property.metadata;
@@ -917,7 +890,6 @@ content(struct module *mod)
     const enum tag_realtime_unit realtime_unit
         = (client->has_seeked_support && client->status == STATUS_PLAYING) ? TAG_REALTIME_MSECS : TAG_REALTIME_NONE;
 
-    mtx_lock(&mod->lock);
     struct tag_set tags = {
         .tags = (struct tag *[]){
             tag_new_bool(mod, "has_seeked_support", client->has_seeked_support),
@@ -1045,7 +1017,11 @@ run(struct module *mod)
     const struct bar *bar = mod->bar;
     struct private *m = mod->private;
 
-    if (!context_setup(&m->context)) {
+    mtx_lock(&mod->lock);
+    bool context_is_valid = context_setup(&m->context);
+    mtx_unlock(&mod->lock);
+
+    if (!context_is_valid) {
         LOG_ERR("Failed to setup context");
         return -1;
     }
@@ -1072,12 +1048,36 @@ run(struct module *mod)
             break;
         }
 
-        mtx_lock(&mod->lock);
-        if (!context_process_events(context, m->timeout_ms)) {
+        /* Check for and process new messages */
+        int status = -1;
+
+        /* We should get away without locking, since the monitor
+         * connection is not used anywhere else. */
+        status = sd_bus_wait(context->monitor_connection, timeout_ms);
+        if (status < 0) {
+            if (status == -ENOTCONN)
+                LOG_DBG("Disconnect signal has been processed");
+            else
+                LOG_ERR("Failed to query monitor connection: errno=%d", status);
+
             aborted = true;
             break;
         }
-        mtx_unlock(&mod->lock);
+
+        /* 'sd_bus_process' processes one 'action' per call.
+         * This includes: connection, authentication, message processing */
+        mtx_lock(&mod->lock);
+        status = sd_bus_process(context->monitor_connection, NULL);
+
+        if (status < 0) {
+            if (status == -ENOTCONN)
+                LOG_DBG("Disconnect signal has been processed");
+            else
+                LOG_ERR("Failed to query monitor connection: errno=%d", status);
+
+            aborted = true;
+            break;
+        }
 
         /* Process dynamic updates, received through the contexts
          * monitor connection. The 'upate_message' attribute is set
@@ -1087,13 +1087,12 @@ run(struct module *mod)
             assert(context->current_client != NULL);
             assert(context->update_message != NULL);
 
-            mtx_lock(&mod->lock);
             context->has_update = false;
             aborted = !update_client_from_message(context->current_client, context->update_message);
             context->update_message = sd_bus_message_unref(context->update_message);
-            mtx_unlock(&mod->lock);
         }
 
+        mtx_unlock(&mod->lock);
         bar->refresh(bar);
     }
 
