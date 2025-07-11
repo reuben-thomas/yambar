@@ -186,7 +186,7 @@ set_visible(struct bar *bar, bool visible)
        return;
 
     b->visible = visible;
-    bar->refresh(bar);
+    b->backend.iface->update_visibility(bar);
 }
 
 static const char *

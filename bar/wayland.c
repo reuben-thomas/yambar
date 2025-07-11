@@ -115,6 +115,7 @@ struct wayland_backend {
 
     /* We're already waiting for a frame done callback */
     bool render_scheduled;
+    bool bar_shown;
 
     tll(struct buffer) buffers;    /* List of SHM buffers */
     struct buffer *next_buffer;    /* Bar is rendering to this one */
@@ -729,6 +730,7 @@ layer_surface_configure(void *data, struct zwlr_layer_surface_v1 *surface, uint3
     backend->height = h * backend->scale;
 
     zwlr_layer_surface_v1_ack_configure(surface, serial);
+    refresh(backend->bar);
 }
 
 static void
@@ -775,6 +777,7 @@ create_surface(struct wayland_backend *backend)
     case BAR_LAYER_BOTTOM:
     case BAR_LAYER_HIDDEN:
         layer = ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM;
+        backend->bar_shown = false;
         break;
 
     case BAR_LAYER_TOP:
@@ -1238,22 +1241,30 @@ loop(struct bar *_bar, void (*expose)(const struct bar *bar),
                     goto out;
                 }
 
-                assert(command == 1);
+                assert((command == 1) || (command == 2));
                 if (command == 1) {
                     count++;
                     do_expose = true;
                 }
+                else if (command == 2) {
+                  do_expose = false;
+                  break;
+                }
             }
 
             LOG_DBG("coalesced %zu expose commands", count);
-            if (bar->layer == BAR_LAYER_HIDDEN) {
-              zwlr_layer_surface_v1_set_layer(
-                  backend->layer_surface,
-                  (bar->visible) ? ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY : ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM);
-            }
             if (do_expose) {
                 expose(_bar);
             }
+        }
+
+        if ((bar->layer == BAR_LAYER_HIDDEN) && (bar->visible != backend->bar_shown)) {
+          zwlr_layer_surface_v1_set_layer(
+              backend->layer_surface,
+              (bar->visible) ? ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY : ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM);
+          wl_surface_commit(backend->surface);
+          wl_display_flush(backend->display);
+          backend->bar_shown = bar->visible;
         }
 
         if (fds[1].revents & POLLIN) {
@@ -1429,6 +1440,17 @@ refresh(const struct bar *_bar)
 }
 
 static void
+update_visibility(const struct bar *_bar)
+{
+    const struct private *bar = _bar->private;
+    const struct wayland_backend *backend = bar->backend.data;
+
+    if (write(backend->pipe_fds[1], &(uint8_t){2}, sizeof(uint8_t)) != sizeof(uint8_t)) {
+        LOG_ERRNO("failed to signal 'update_visibility' to main thread");
+    }
+}
+
+static void
 set_cursor(struct bar *_bar, const char *cursor)
 {
     struct private *bar = _bar->private;
@@ -1468,6 +1490,7 @@ const struct backend wayland_backend_iface = {
     .loop = &loop,
     .commit = &commit,
     .refresh = &refresh,
+    .update_visibility = &update_visibility,
     .set_cursor = &set_cursor,
     .output_name = &bar_output_name,
 };
