@@ -1,38 +1,16 @@
-[![CI status](https://ci.codeberg.org/api/badges/dnkl/yambar/status.svg)](https://ci.codeberg.org/dnkl/yambar)
-
 # Yambar
 
-**This project is not developed anymore, and this repository will be
-archived in a near future**.
-
-I do not have neither the time nor the will to work on this
-anymore. Mainly because I do not use a bar myself anymore.
-
-There are also technical difficulties, caused by the fact that yambar
-was initially X11, and only later was Wayland support added.
-
-This means I have to maintain a backend (X11) I have not used myself
-in many years, as well as trying to work around technical limitations
-imposed by the way both X11 and Wayland is supported, As my own use of
-a bar has dwindled, the will to refactor and improve the backends has
-disappeared.
-
-Yambar has seen a lot of contributions, for which I am very
-grateful. I hope that means someone is willing to pick up where I left
-of, and continue working on yambar. If not, we at least had a good
-run; the first commit was in late 2018, roughly 6½ years ago!
-
-
-[![Packaging status](https://repology.org/badge/vertical-allrepos/yambar.svg?columns=4)](https://repology.org/project/yambar/versions)
-
+A fork of my favourite bar which is no longer maintained, [yambar](https://codeberg.org/dnkl/yambar).
 
 ## Index
 
-1. [Introduction](#introduction)
-1. [Configuration](#configuration)
-1. [Modules](#modules)
-1. [Installation](#installation)
-1. [Bugs](#bugs)
+- [Yambar](#yambar)
+  - [Index](#index)
+  - [Introduction](#introduction)
+  - [Configuration](#configuration)
+  - [Modules](#modules)
+  - [Installation](#installation)
+  - [Bugs](#bugs)
 
 
 ## Introduction
