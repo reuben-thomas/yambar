@@ -206,8 +206,9 @@ content(struct module *mod)
                            "unknown"),
             tag_new_int_range(mod, "capacity", m->capacity, 0, 100),
             tag_new_string(mod, "estimate", estimate),
+            tag_new_float(mod, "power", m->power >= 0 ? (double)m->power / 1000000.0 : 0.0),
         },
-        .count = 6,
+        .count = 7,
     };
 
     mtx_unlock(&mod->lock);
@@ -395,6 +396,7 @@ update_status(struct module *mod)
     int power_fd = openat(base_dir_fd, "power_now", O_RDONLY | O_CLOEXEC);
     int charge_fd = openat(base_dir_fd, "charge_now", O_RDONLY | O_CLOEXEC);
     int current_fd = openat(base_dir_fd, "current_now", O_RDONLY | O_CLOEXEC);
+    int voltage_fd = openat(base_dir_fd, "voltage_now", O_RDONLY | O_CLOEXEC);
     int time_to_empty_fd = openat(base_dir_fd, "time_to_empty_now", O_RDONLY | O_CLOEXEC);
     int time_to_full_fd = openat(base_dir_fd, "time_to_full_now", O_RDONLY | O_CLOEXEC);
 
@@ -403,8 +405,12 @@ update_status(struct module *mod)
     long power = power_fd >= 0 ? readint_from_fd(power_fd) : -1;
     long charge = charge_fd >= 0 ? readint_from_fd(charge_fd) : -1;
     long current = current_fd >= 0 ? readint_from_fd(current_fd) : -1;
+    long voltage = voltage_fd >= 0 ? readint_from_fd(voltage_fd) : -1;
     long time_to_empty = time_to_empty_fd >= 0 ? readint_from_fd(time_to_empty_fd) : -1;
     long time_to_full = time_to_full_fd >= 0 ? readint_from_fd(time_to_full_fd) : -1;
+
+    if (power < 0 && current >= 0 && voltage >= 0)
+        power = current * voltage / 1000000;
 
     if (charge >= -1) {
         charge /= m->battery_scale;
@@ -425,6 +431,8 @@ update_status(struct module *mod)
         close(charge_fd);
     if (current_fd >= 0)
         close(current_fd);
+    if (voltage_fd >= 0)
+        close(voltage_fd);
     if (time_to_empty_fd >= 0)
         close(time_to_empty_fd);
     if (time_to_full_fd >= 0)
